@@ -84,8 +84,19 @@ class Library(val history: List<Entry>, val favorites: List<Entry>) {
 
     fun isFavorite(address: String?) = favorites.any { it.address == address }
 
+    /** A demo app, offered while the history is empty; demo apps never go to the history. */
+    class Demo(val address: String, val title: String, val about: String)
+
     companion object {
         val EMPTY = Library(emptyList(), emptyList())
+
+        val demos: List<Demo> by lazy {
+            val a = org.json.JSONArray(RustBridge.demos())
+            List(a.length()) {
+                val d = a.getJSONObject(it)
+                Demo(d.getString("address"), d.getString("title"), d.getString("about"))
+            }
+        }
 
         fun parse(json: String): Library {
             val o = JSONObject(json)

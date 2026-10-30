@@ -51,14 +51,14 @@ impl Library {
         self.store.borrow().connect(url, identity)
     }
 
-    /// The addresses that were open when the app last saved them.
-    pub fn session(&self) -> Vec<String> {
+    /// The tabs that were open when the app last saved them.
+    pub fn session(&self) -> Vec<Entry> {
         self.with(|l| l.session.clone())
     }
 
-    /// Remembers the open addresses. Nothing displays them, so listeners
-    /// are not called.
-    pub fn save_session(&self, session: Vec<String>) {
+    /// Remembers the open tabs. Nothing displays them, so listeners are
+    /// not called.
+    pub fn save_session(&self, session: Vec<Entry>) {
         if let Err(e) = self.store.borrow_mut().update(|l, _| l.session = session) {
             eprintln!("hyperb: cannot save the session: {e}");
         }
@@ -151,8 +151,9 @@ fn texture(bytes: Vec<u8>) -> Option<gdk::Texture> {
     gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok()
 }
 
-/// Favorites, then the most recent `limit` history entries, rebuilt on every
-/// change. Activating an entry calls `open` with its address.
+/// Favorites, then the most recent `limit` history entries, or the demo apps
+/// while the history is empty, rebuilt on every change. Activating an entry
+/// calls `open` with its address.
 pub fn view(lib: &Rc<Library>, limit: usize, open: impl Fn(&str) + 'static) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 6);
     root.add_css_class("hb-library");
@@ -181,12 +182,6 @@ fn fill(root: &gtk::Box, lib: &Rc<Library>, limit: usize, open: &Rc<dyn Fn(&str)
         let n = l.history.len().min(limit);
         (l.favorites.clone(), l.history[..n].to_vec())
     });
-    if favorites.is_empty() && history.is_empty() {
-        let empty = gtk::Label::new(Some("No favorites or history yet."));
-        empty.add_css_class("he-v-caption");
-        root.append(&empty);
-        return;
-    }
     let weak = Rc::downgrade(lib);
     if !favorites.is_empty() {
         root.append(&heading("Favorites", None));
@@ -208,7 +203,10 @@ fn fill(root: &gtk::Box, lib: &Rc<Library>, limit: usize, open: &Rc<dyn Fn(&str)
             },
         ));
     }
-    if !history.is_empty() {
+    if history.is_empty() {
+        root.append(&heading("Demo apps", None));
+        root.append(&demos(open));
+    } else {
         let clear = gtk::Button::with_label("Clear history");
         clear.add_css_class("flat");
         {
@@ -300,6 +298,39 @@ fn list(
     list.connect_row_activated(move |_, row| {
         if let Some(a) = addresses.get(row.index() as usize) {
             open(a);
+        }
+    });
+    list
+}
+
+fn demos(open: &Rc<dyn Fn(&str)>) -> gtk::ListBox {
+    let list = gtk::ListBox::new();
+    list.add_css_class("boxed-list");
+    list.add_css_class("hb-library-list");
+    list.set_selection_mode(gtk::SelectionMode::None);
+    for d in library::DEMOS {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        row.append(&gtk::Image::from_icon_name("applications-games-symbolic"));
+        let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        text.set_hexpand(true);
+        let title = gtk::Label::new(Some(d.title));
+        title.set_xalign(0.0);
+        let about = gtk::Label::new(Some(d.about));
+        about.set_xalign(0.0);
+        about.set_ellipsize(pango::EllipsizeMode::End);
+        about.add_css_class("he-v-caption");
+        text.append(&title);
+        text.append(&about);
+        row.append(&text);
+        let r = gtk::ListBoxRow::new();
+        r.set_child(Some(&row));
+        r.set_tooltip_text(Some(d.address));
+        list.append(&r);
+    }
+    let open = open.clone();
+    list.connect_row_activated(move |_, row| {
+        if let Some(d) = library::DEMOS.get(row.index() as usize) {
+            open(d.address);
         }
     });
     list

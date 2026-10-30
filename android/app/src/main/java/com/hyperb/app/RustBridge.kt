@@ -33,6 +33,9 @@ object RustBridge {
     /** The history and favorites, as JSON; see [Library]. */
     @JvmStatic external fun library(): String
 
+    /** The demo apps, as a JSON array of `{"address", "title", "about"}`; see [Library.demos]. */
+    @JvmStatic external fun demos(): String
+
     /** The `https` icon at [src], downloaded unless it is kept already; blocks. */
     @JvmStatic external fun icon(src: String): ByteArray?
 

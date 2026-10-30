@@ -374,6 +374,23 @@ pub extern "system" fn Java_com_hyperb_app_RustBridge_library(
     .resolve::<ThrowRuntimeExAndDefault>()
 }
 
+/// `demos(): String`: the demo apps the welcome page offers while the history
+/// is empty, as a JSON array of `{"address", "title", "about"}`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hyperb_app_RustBridge_demos(
+    mut env: EnvUnowned<'_>,
+    _class: JClass,
+) -> jstring {
+    env.with_env(|env| -> jni::errors::Result<jstring> {
+        let demos: Vec<Value> = hyperb_core::library::DEMOS
+            .iter()
+            .map(|d| json!({"address": d.address, "title": d.title, "about": d.about}))
+            .collect();
+        Ok(env.new_string(json!(demos).to_string())?.into_raw())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
 /// `icon(src: String): ByteArray?`: the `https` icon at `src`, downloaded
 /// (and kept while an entry uses it) unless it already was; null if it
 /// cannot be. Blocks while downloading, so call it off the main thread.

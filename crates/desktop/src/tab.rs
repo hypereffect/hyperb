@@ -1,15 +1,19 @@
-//! One browser tab: a URL bar, a connection to a hypereffect server, and the
-//! rendered session.
+//! One browser tab: a connection to a hypereffect server, and the rendered
+//! session.
 //!
-//! Typing an address opens a connection; when it opens the tab sends `hello`
+//! A new tab asks for an address, and keeps the one it opens for good: other
+//! addresses open in other tabs. Restored tabs connect only once they are
+//! first shown ([`Tab::load`]). When the connection opens the tab sends `hello`
 //! and from then on feeds every frame to the [`Client`], redrawing once per
 //! batch of frames. When the transport closes the last state stays on screen
 //! with controls disabled, and a banner offers to reconnect.
 //!
-//! Every address the user opens goes to the history; the toolbar's star adds
-//! it to the favorites, and the popover next to it (and the page of a new
-//! tab) lists both. The metadata the app sends names the tab, gives it an
-//! icon, and does the same for its entries there.
+//! Every address the user opens goes to the history (except the demo apps);
+//! the toolbar's star adds it to the favorites, and the popover next to it
+//! (and the page of a new tab) lists both, or the demo apps while the history
+//! is empty. The metadata the app sends names the tab and gives it an icon,
+//! which it keeps until the app sends other metadata, and does the same for
+//! its entries there.
 
 use crate::clamp::Clamp;
 use crate::debug::{Debugger, Dir};
@@ -40,7 +44,13 @@ pub struct Tab {
     pub close_button: gtk::Button,
     spinner: gtk::Spinner,
     icon: gtk::Image,
+    /// Shows the spinner, the icon or nothing, always in the same space.
+    lead: gtk::Stack,
+    /// The address field of a new tab.
     url_entry: gtk::Entry,
+    toolbar: gtk::Box,
+    status: gtk::Image,
+    address_label: gtk::Label,
     star: gtk::ToggleButton,
     banner: gtk::Box,
     banner_text: gtk::Label,
@@ -49,23 +59,26 @@ pub struct Tab {
     session: RefCell<Session>,
     renderer: RefCell<Renderer>,
     quiet: Cell<bool>,
+    /// Restored, and not connected yet.
+    pending: Cell<bool>,
     identity: Identity,
     library: Rc<Library>,
-    /// Called after the tab starts connecting to a new address.
-    navigated: RefCell<Option<Box<dyn Fn()>>>,
-    /// Called with the hyperb addresses that buttons ask to open.
+    /// Called after the tab opens its address or its title or icon change.
+    changed: RefCell<Option<Box<dyn Fn()>>>,
+    /// Called with the addresses to open in another tab.
     open_app: RefCell<Box<OpenApp>>,
 }
 
-/// What a tab calls with a hyperb address a button asks to open.
-type OpenApp = dyn Fn(&str);
+/// What a tab calls with an address to open in another tab, and whether it
+/// is a link (from a button), which cannot open local files.
+type OpenApp = dyn Fn(&str, bool);
 
 struct Session {
     client: Client,
     conn: Option<Connection>,
     url: Option<Url>,
-    /// The title and icon of `url`, from its library entry until the app
-    /// sends metadata.
+    /// The title and icon of `url`, from the saved session or its library
+    /// entry until the app sends metadata.
     entry: Option<Entry>,
     /// Bumped on every connect, so events from replaced connections are dropped.
     generation: u64,
@@ -84,33 +97,47 @@ impl Tab {
     pub fn new(identity: Identity, library: Rc<Library>) -> Rc<Tab> {
         Rc::new_cyclic(|weak: &std::rc::Weak<Tab>| {
             // Tab strip entry.
+            // Fixed sizes, so the icon and the close button line up in
+            // every tab whatever the title.
             let spinner = gtk::Spinner::new();
-            spinner.set_visible(false);
             let icon = gtk::Image::new();
             icon.set_pixel_size(16);
-            icon.set_visible(false);
+            let lead = gtk::Stack::new();
+            lead.set_size_request(16, 16);
+            lead.set_valign(gtk::Align::Center);
+            lead.add_named(
+                &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+                Some("none"),
+            );
+            lead.add_named(&spinner, Some("spinner"));
+            lead.add_named(&icon, Some("icon"));
+            lead.set_visible_child_name("none");
             let title = gtk::Label::new(Some("New Tab"));
             title.set_width_chars(18);
-            title.set_max_width_chars(28);
-            title.set_ellipsize(pango::EllipsizeMode::Middle);
+            title.set_max_width_chars(18);
+            title.set_xalign(0.0);
+            title.set_ellipsize(pango::EllipsizeMode::End);
             let close_button = gtk::Button::from_icon_name("window-close-symbolic");
             close_button.add_css_class("flat");
             close_button.add_css_class("circular");
             close_button.add_css_class("hb-tab-close");
             close_button.set_tooltip_text(Some("Close tab"));
+            close_button.set_valign(gtk::Align::Center);
             let tab_label = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            tab_label.append(&spinner);
-            tab_label.append(&icon);
+            tab_label.append(&lead);
             tab_label.append(&title);
             tab_label.append(&close_button);
 
             // Toolbar.
             let reload = gtk::Button::from_icon_name("view-refresh-symbolic");
             reload.set_tooltip_text(Some("Reconnect (F5)"));
-            let url_entry = gtk::Entry::new();
-            url_entry.set_hexpand(true);
-            url_entry.set_placeholder_text(Some("Server address"));
-            url_entry.set_input_purpose(gtk::InputPurpose::Url);
+            let status = gtk::Image::new();
+            status.set_visible(false);
+            let address_label = gtk::Label::new(None);
+            address_label.set_hexpand(true);
+            address_label.set_xalign(0.0);
+            address_label.set_selectable(true);
+            address_label.set_ellipsize(pango::EllipsizeMode::Middle);
             let star = gtk::ToggleButton::new();
             star.set_icon_name("non-starred-symbolic");
             star.set_tooltip_text(Some("Add to favorites"));
@@ -121,11 +148,15 @@ impl Tab {
             let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             toolbar.add_css_class("hb-toolbar");
             toolbar.append(&reload);
-            toolbar.append(&url_entry);
+            toolbar.append(&status);
+            toolbar.append(&address_label);
             toolbar.append(&star);
             toolbar.append(&library_button);
+            // A new tab has nothing to reload or star.
+            toolbar.set_visible(false);
 
-            // Favorites and history, in the popover and on the welcome page.
+            // Favorites and history, in the popover and on the welcome page:
+            // the tab opens its address there, or a new tab if it has one.
             let open = |popover: Option<gtk::Popover>| {
                 let w = weak.clone();
                 move |addr: &str| {
@@ -137,6 +168,9 @@ impl Tab {
                     }
                 }
             };
+            let url_entry = gtk::Entry::new();
+            url_entry.set_placeholder_text(Some("Server address"));
+            url_entry.set_input_purpose(gtk::InputPurpose::Url);
             let popover = gtk::Popover::new();
             let popover_scroll = gtk::ScrolledWindow::new();
             popover_scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
@@ -177,7 +211,7 @@ impl Tab {
             let content = gtk::Stack::new();
             content.set_vexpand(true);
             content.add_named(
-                &welcome(library::view(&library, 12, open(None))),
+                &welcome(&url_entry, library::view(&library, 12, open(None))),
                 Some("welcome"),
             );
             content.add_named(&overlay, Some("page"));
@@ -259,7 +293,11 @@ impl Tab {
                 close_button,
                 spinner,
                 icon,
+                lead,
                 url_entry,
+                toolbar,
+                status,
+                address_label,
                 star,
                 banner,
                 banner_text,
@@ -275,35 +313,61 @@ impl Tab {
                 }),
                 renderer: RefCell::new(Renderer::new(weak.clone(), overlay, main)),
                 quiet: Cell::new(false),
+                pending: Cell::new(false),
                 identity,
                 library,
-                navigated: RefCell::new(None),
-                open_app: RefCell::new(Box::new(|_| {})),
+                changed: RefCell::new(None),
+                open_app: RefCell::new(Box::new(|_, _| {})),
             }
         })
     }
 
-    /// Calls `f` each time the tab opens an address.
-    pub fn on_navigate(&self, f: impl Fn() + 'static) {
-        *self.navigated.borrow_mut() = Some(Box::new(f));
+    /// Calls `f` when the tab opens its address, and each time its title
+    /// or icon change.
+    pub fn on_change(&self, f: impl Fn() + 'static) {
+        *self.changed.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Calls `f` with each hyperb address a button asks to open.
-    pub fn on_open_app(&self, f: impl Fn(&str) + 'static) {
+    fn changed(&self) {
+        if let Some(f) = &*self.changed.borrow() {
+            f();
+        }
+    }
+
+    /// Calls `f` with each address to open in another tab: the hyperb
+    /// addresses buttons ask to open (links), and the ones the user picks in
+    /// a tab that has an address already.
+    pub fn on_open_app(&self, f: impl Fn(&str, bool) + 'static) {
         *self.open_app.borrow_mut() = Box::new(f);
     }
 
-    /// The `hyperb://` address the tab shows, if it has opened one.
-    pub fn address(&self) -> Option<String> {
-        self.session.borrow().url.as_ref().map(address::hyperb)
+    /// The address the tab shows, with the title and icon it has, if it
+    /// has opened one.
+    pub fn entry(&self) -> Option<Entry> {
+        self.session.borrow().entry.clone()
     }
 
-    pub fn focus_url(&self) {
+    pub fn has_address(&self) -> bool {
+        self.session.borrow().url.is_some()
+    }
+
+    /// Focuses the address field of a new tab; false if the tab has an
+    /// address already.
+    pub fn focus_url(&self) -> bool {
+        if self.has_address() {
+            return false;
+        }
         self.url_entry.grab_focus();
+        true
     }
 
-    /// Connects to what the user typed or picked.
+    /// Connects to what the user typed or picked. A tab that has an
+    /// address already opens it in another tab instead.
     pub fn navigate(self: &Rc<Self>, input: &str) {
+        if self.has_address() {
+            (self.open_app.borrow())(input, false);
+            return;
+        }
         self.go(address::normalize(input));
     }
 
@@ -316,21 +380,15 @@ impl Tab {
     fn go(self: &Rc<Self>, url: Result<Url, String>) {
         match url {
             Ok(url) => {
-                self.url_entry.set_text(&address::hyperb(&url));
-                self.title
-                    .set_tooltip_text(Some(address::hyperb(&url).as_str()));
                 self.content.grab_focus();
                 self.library.visit(&url);
                 let entry = self
                     .library
                     .entry(&url)
                     .unwrap_or_else(|| Entry::new(&url, 0));
-                self.show_entry(&entry);
-                self.session.borrow_mut().entry = Some(entry);
+                self.set_address(&url, entry);
                 self.connect(url);
-                if let Some(f) = &*self.navigated.borrow() {
-                    f();
-                }
+                self.changed();
             }
             Err(e) => {
                 self.banner_text.set_text(&format!("Invalid address: {e}"));
@@ -339,10 +397,44 @@ impl Tab {
         }
     }
 
+    /// Shows the tab of a saved session, which connects once [`Tab::load`]
+    /// is called. False if its address is not valid any more.
+    pub fn restore(&self, entry: Entry) -> bool {
+        let Ok(url) = address::normalize(&entry.address) else {
+            return false;
+        };
+        self.set_address(&url, entry);
+        self.session.borrow_mut().url = Some(url);
+        self.content.set_visible_child_name("page");
+        self.update_star();
+        self.pending.set(true);
+        true
+    }
+
+    /// Connects a restored tab, the first time it is shown.
+    pub fn load(self: &Rc<Self>) {
+        if self.pending.replace(false) {
+            self.reload();
+        }
+    }
+
+    fn set_address(&self, url: &Url, entry: Entry) {
+        let addr = address::hyperb(url);
+        self.title.set_tooltip_text(Some(&addr));
+        self.address_label.set_text(&addr);
+        self.address_label.set_tooltip_text(Some(&addr));
+        self.toolbar.set_visible(true);
+        self.show_entry(&entry);
+        self.session.borrow_mut().entry = Some(entry);
+    }
+
     pub fn reload(self: &Rc<Self>) {
         let url = self.session.borrow().url.clone();
         match url {
-            Some(url) => self.connect(url),
+            Some(url) => {
+                self.pending.set(false);
+                self.connect(url);
+            }
             None => self.navigate(&self.url_entry.text()),
         }
     }
@@ -430,6 +522,7 @@ impl Tab {
         };
         self.show_entry(&entry);
         self.library.describe(&url, &m);
+        self.changed();
     }
 
     fn show_entry(&self, e: &Entry) {
@@ -442,9 +535,19 @@ impl Tab {
     /// downloaded it, which calls this again.
     fn show_icon(&self, e: &Entry) {
         let tex = e.icon.as_deref().and_then(|i| self.library.icon(i));
-        self.icon
-            .set_visible(tex.is_some() && !self.spinner.is_visible());
         self.icon.set_paintable(tex.as_ref());
+        self.update_lead();
+    }
+
+    fn update_lead(&self) {
+        let name = if self.spinner.is_spinning() {
+            "spinner"
+        } else if self.icon.paintable().is_some() {
+            "icon"
+        } else {
+            "none"
+        };
+        self.lead.set_visible_child_name(name);
     }
 
     fn set_favorite(&self, on: bool) {
@@ -512,7 +615,7 @@ impl Tab {
         let url = match address::open(url) {
             Ok(address::Open::External(u)) => u,
             Ok(address::Open::App(u)) => {
-                (self.open_app.borrow())(&address::hyperb(&u));
+                (self.open_app.borrow())(&address::hyperb(&u), true);
                 return;
             }
             Err(e) => {
@@ -584,26 +687,22 @@ impl Tab {
     fn update_chrome(&self) {
         let s = self.session.borrow();
         let connecting = s.state == State::Connecting;
-        self.spinner.set_visible(connecting);
         self.spinner.set_spinning(connecting);
-        self.icon
-            .set_visible(!connecting && self.icon.paintable().is_some());
+        self.update_lead();
         let icon = match (&s.state, s.url.as_ref().map(Url::scheme)) {
             (State::Open, Some("https" | "iroh")) => Some("channel-secure-symbolic"),
             (State::Open, _) => Some("channel-insecure-symbolic"),
             (State::Closed(_), _) => Some("network-offline-symbolic"),
             _ => None,
         };
-        self.url_entry.set_primary_icon_name(icon);
-        self.url_entry
-            .set_primary_icon_tooltip_text(match &s.state {
-                State::Open if icon == Some("channel-secure-symbolic") => {
-                    Some("Connected (encrypted)")
-                }
-                State::Open => Some("Connected (not encrypted)"),
-                State::Closed(_) => Some("Disconnected"),
-                _ => None,
-            });
+        self.status.set_icon_name(icon);
+        self.status.set_visible(icon.is_some());
+        self.status.set_tooltip_text(match &s.state {
+            State::Open if icon == Some("channel-secure-symbolic") => Some("Connected (encrypted)"),
+            State::Open => Some("Connected (not encrypted)"),
+            State::Closed(_) => Some("Disconnected"),
+            _ => None,
+        });
         match &s.state {
             State::Closed(reason) => {
                 let text = match reason {
@@ -618,7 +717,7 @@ impl Tab {
     }
 }
 
-fn welcome(library: gtk::Box) -> gtk::Widget {
+fn welcome(url_entry: &gtk::Entry, library: gtk::Box) -> gtk::Widget {
     let b = gtk::Box::new(gtk::Orientation::Vertical, 12);
     b.add_css_class("hb-welcome");
     let title = gtk::Label::new(Some("hyperb"));
@@ -630,7 +729,9 @@ fn welcome(library: gtk::Box) -> gtk::Widget {
     hint.add_css_class("he-v-caption");
     b.append(&title);
     b.append(&hint);
-    library.set_margin_top(24);
+    url_entry.set_margin_top(24);
+    b.append(url_entry);
+    library.set_margin_top(12);
     b.append(&library);
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_hscrollbar_policy(gtk::PolicyType::Never);

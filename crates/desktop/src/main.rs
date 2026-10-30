@@ -8,6 +8,9 @@
 //! One instance runs per user: launching it again opens the addresses in the
 //! running window. The system opens `hyperb://` and `web+hyperb://` links
 //! with `--links` (see `com.hyperb.app.desktop`), which refuses local files.
+//!
+//! Started without addresses, it reopens the tabs of the last run, each
+//! connecting only once it is first shown.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -21,8 +24,9 @@ use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use gtk4 as gtk;
 use hyperb_core::identity::Identity;
+use hyperb_core::library::Entry;
 use library::Library;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use tab::Tab;
 
@@ -83,7 +87,7 @@ fn main() -> glib::ExitCode {
                 let b = Browser::open(app, identity, library);
                 if restore {
                     // Nothing was asked for: reopen what was open last time.
-                    b.open_all(&session, false);
+                    b.restore(session);
                 } else {
                     b.open_all(&urls, links);
                 }
@@ -171,6 +175,9 @@ struct Browser {
     window: gtk::ApplicationWindow,
     notebook: gtk::Notebook,
     tabs: RefCell<Vec<Rc<Tab>>>,
+    /// Set while restoring the session, when switching tabs must not load
+    /// them.
+    restoring: Cell<bool>,
     identity: Identity,
     library: Rc<Library>,
 }
@@ -203,6 +210,7 @@ impl Browser {
             window: window.clone(),
             notebook: notebook.clone(),
             tabs: RefCell::new(Vec::new()),
+            restoring: Cell::new(false),
             identity,
             library,
         });
@@ -230,6 +238,9 @@ impl Browser {
                     && let Some(t) = b.tab_for(page)
                 {
                     b.window.set_title(Some(&window_title(&t)));
+                    if !b.restoring.get() {
+                        t.load();
+                    }
                 }
             });
         }
@@ -246,7 +257,12 @@ impl Browser {
         };
         action("new-tab", |b, _| b.add_tab(None, false));
         action("close-tab", |b, t| b.close_tab(t));
-        action("focus-url", |_, t| t.focus_url());
+        // A tab keeps its address: a new one goes in a new tab.
+        action("focus-url", |b, t| {
+            if !t.focus_url() {
+                b.add_tab(None, false);
+            }
+        });
         action("reload", |_, t| t.reload());
 
         // The browser lives as long as its window.
@@ -308,9 +324,46 @@ impl Browser {
         }
     }
 
+    /// Reopens the tabs of a saved session without connecting them, then
+    /// shows (and so connects) the last one.
+    fn restore(self: &Rc<Self>, session: Vec<Entry>) {
+        self.restoring.set(true);
+        for e in session {
+            let t = self.append_tab();
+            if !t.restore(e) {
+                self.close_tab(&t);
+            }
+        }
+        self.restoring.set(false);
+        let last = self.tabs.borrow().last().cloned();
+        match last {
+            Some(t) => {
+                if let Some(i) = self.notebook.page_num(&t.page) {
+                    self.notebook.set_current_page(Some(i));
+                }
+                t.load();
+            }
+            None => self.add_tab(None, false),
+        }
+    }
+
     fn add_tab(self: &Rc<Self>, url: Option<&str>, link: bool) {
+        let t = self.append_tab();
+        if let Some(i) = self.notebook.page_num(&t.page) {
+            self.notebook.set_current_page(Some(i));
+        }
+        match url {
+            Some(u) if link => t.open_link(u),
+            Some(u) => t.navigate(u),
+            None => {
+                t.focus_url();
+            }
+        }
+    }
+
+    fn append_tab(self: &Rc<Self>) -> Rc<Tab> {
         let t = Tab::new(self.identity.clone(), self.library.clone());
-        let i = self.notebook.append_page(&t.page, Some(&t.tab_label));
+        self.notebook.append_page(&t.page, Some(&t.tab_label));
         self.notebook.set_tab_reorderable(&t.page, true);
         {
             let b = Rc::downgrade(self);
@@ -335,7 +388,7 @@ impl Browser {
         }
         {
             let b = Rc::downgrade(self);
-            t.on_navigate(move || {
+            t.on_change(move || {
                 if let Some(b) = b.upgrade() {
                     b.save_session();
                 }
@@ -343,28 +396,27 @@ impl Browser {
         }
         {
             let b = Rc::downgrade(self);
-            t.on_open_app(move |u| {
+            t.on_open_app(move |u, link| {
                 if let Some(b) = b.upgrade() {
-                    b.add_tab(Some(u), true);
+                    b.add_tab(Some(u), link);
                 }
             });
         }
         self.tabs.borrow_mut().push(t.clone());
-        self.notebook.set_current_page(Some(i));
-        match url {
-            Some(u) if link => t.open_link(u),
-            Some(u) => t.navigate(u),
-            None => t.focus_url(),
-        }
+        t
     }
 
-    /// Remembers the open addresses, to reopen them on the next start.
+    /// Remembers the open addresses with their titles and icons, to reopen
+    /// them on the next start.
     fn save_session(&self) {
+        if self.restoring.get() {
+            return;
+        }
         let session = self
             .tabs
             .borrow()
             .iter()
-            .filter_map(|t| t.address())
+            .filter_map(|t| t.entry())
             .collect();
         self.library.save_session(session);
     }

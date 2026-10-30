@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -503,7 +504,20 @@ private fun Welcome(b: Browser) {
                 }
             }
         }
-        if (lib.history.isNotEmpty()) {
+        if (lib.history.isEmpty()) {
+            item { SectionTitle("Demo apps") }
+            items(Library.demos, key = { "d:" + it.address }) { d ->
+                Column {
+                    ListItem(
+                        headlineContent = { Text(d.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = { Text(d.about, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingContent = { Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp)) },
+                        modifier = Modifier.fillMaxWidth().clickable { b.navigate(d.address) },
+                    )
+                    HorizontalDivider()
+                }
+            }
+        } else {
             item {
                 SectionTitle("History") {
                     TextButton(onClick = { b.forget(null) }, shape = LocalLook.current.buttonShape) { Text("Clear history") }

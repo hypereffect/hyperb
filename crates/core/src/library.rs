@@ -12,6 +12,9 @@
 //! the same app typed two ways is one entry. An entry's title and icon come
 //! from the metadata the app sends ([`Entry::describe`]), and stay when the
 //! app is opened again.
+//!
+//! The [`DEMOS`] never go to the history: renderers list them where the
+//! history would be, until there is one.
 
 use crate::address::{self, Kind};
 use hypereffect::Metadata;
@@ -25,6 +28,100 @@ pub const HISTORY_LIMIT: usize = 500;
 /// The longest icon kept, in bytes: icons are usually `data:` URLs, and the
 /// library is read and written whole.
 pub const ICON_LIMIT: usize = 32 * 1024;
+
+/// A demo app, hosted with the web renderer (see `crates/demoapps`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Demo {
+    /// The `hyperb://` address.
+    pub address: &'static str,
+    pub title: &'static str,
+    pub about: &'static str,
+}
+
+const fn demo(address: &'static str, title: &'static str, about: &'static str) -> Demo {
+    Demo {
+        address,
+        title,
+        about,
+    }
+}
+
+/// The demo apps, which renderers offer while the history is empty.
+pub const DEMOS: &[Demo] = &[
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm",
+        "Restaurant",
+        "Reserve a table",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/therapist.wasm",
+        "Therapist",
+        "Book a weekly session",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/textstats.wasm",
+        "Text stats",
+        "Statistics of a text",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm",
+        "Pomodoro",
+        "A focus timer",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/qr.wasm",
+        "QR",
+        "QR codes",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/chart.wasm",
+        "Chart",
+        "Charts",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm",
+        "Bill split",
+        "Split a bill",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/finance.wasm",
+        "Finance",
+        "An RPN financial calculator",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm",
+        "Grammar",
+        "A grammar checker, on Harper",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/dbclient.wasm",
+        "DB client",
+        "A SQL client over fake tables",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/minecraft.wasm",
+        "Minecraft",
+        "A fake Minecraft server's admin console",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/saas.wasm",
+        "SaaS",
+        "A fake product's admin panel",
+    ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/smarthome.wasm",
+        "Smart home",
+        "A simulated house",
+    ),
+];
+
+/// Whether `url` is one of the [`DEMOS`], with any parameters.
+pub fn is_demo(url: &Url) -> bool {
+    let mut key = url.clone();
+    key.set_fragment(None);
+    let address = address::hyperb(&key);
+    DEMOS.iter().any(|d| d.address == address)
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -44,10 +141,16 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// An entry named after the address, or after the demo it is.
     pub fn new(url: &Url, now: u64) -> Self {
+        let address = address::hyperb(url);
+        let title = match DEMOS.iter().find(|d| d.address == address) {
+            Some(d) => d.title.to_string(),
+            None => address::label(url),
+        };
         Entry {
-            address: address::hyperb(url),
-            title: address::label(url),
+            address,
+            title,
             icon: None,
             time: now,
         }
@@ -82,16 +185,40 @@ pub struct Library {
     /// In the order they were added.
     #[serde(default)]
     pub favorites: Vec<Entry>,
-    /// The `hyperb://` addresses that were open when the app last changed
-    /// them, in tab order; renderers reopen them on startup unless they are
-    /// started with an address.
-    #[serde(default)]
-    pub session: Vec<String>,
+    /// The tabs that were open when the app last changed them, in tab
+    /// order, each with the title and icon its app last sent; renderers
+    /// reopen them on startup unless they are started with an address.
+    #[serde(default, deserialize_with = "session")]
+    pub session: Vec<Entry>,
+}
+
+/// The session, also as it was kept before tabs had titles: a list of
+/// addresses.
+fn session<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Entry>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Tab {
+        Entry(Entry),
+        Address(String),
+    }
+    let tabs = Vec::<Tab>::deserialize(d)?;
+    Ok(tabs
+        .into_iter()
+        .filter_map(|t| match t {
+            Tab::Entry(e) => Some(e),
+            Tab::Address(a) => Some(Entry::new(&address::normalize(&a).ok()?, 0)),
+        })
+        .collect())
 }
 
 impl Library {
+    /// Parses a library, dropping any [`DEMOS`] that older versions put in
+    /// the history.
     pub fn from_json(s: &str) -> Result<Self, String> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
+        let mut l: Library = serde_json::from_str(s).map_err(|e| e.to_string())?;
+        l.history
+            .retain(|e| !address::normalize(&e.address).is_ok_and(|u| is_demo(&u)));
+        Ok(l)
     }
 
     pub fn to_json(&self) -> String {
@@ -108,8 +235,11 @@ impl Library {
     }
 
     /// Records that `url` was opened at `now`, keeping the title and icon
-    /// it had.
+    /// it had. The [`DEMOS`] are not recorded.
     pub fn visit(&mut self, url: &Url, now: u64) {
+        if is_demo(url) {
+            return;
+        }
         let mut entry = Entry::new(url, now);
         if let Some(e) = self.entry(url) {
             entry.title = e.title.clone();
@@ -480,6 +610,40 @@ mod tests {
         assert_eq!(l.history.len(), HISTORY_LIMIT);
         l.clear_history();
         assert!(l.history.is_empty());
+    }
+
+    #[test]
+    fn demos_stay_out_of_the_history() {
+        let mut l = Library::default();
+        let demo = url(DEMOS[0].address);
+        assert!(is_demo(&demo));
+        assert!(is_demo(&url(&format!("{}#a=1", DEMOS[0].address))));
+        assert!(!is_demo(&url("example.com/app.wasm")));
+        l.visit(&demo, 1);
+        assert!(l.history.is_empty());
+        // Older versions recorded them.
+        l.history.push(Entry::new(&demo, 1));
+        l.visit(&url("example.com"), 2);
+        let l = Library::from_json(&l.to_json()).unwrap();
+        assert_eq!(l.history.len(), 1);
+        for d in DEMOS {
+            assert_eq!(address::hyperb(&url(d.address)), d.address);
+        }
+        assert_eq!(Entry::new(&demo, 0).title, DEMOS[0].title);
+    }
+
+    #[test]
+    fn session_reads_plain_addresses() {
+        let l = Library::from_json(r#"{"session": ["example.com/a", "not a url ::"]}"#).unwrap();
+        assert_eq!(l.session.len(), 1);
+        assert_eq!(l.session[0].address, "hyperb://example.com/a");
+        let mut e = Entry::new(&url("example.com/b"), 3);
+        e.title = "B".into();
+        let l = Library {
+            session: vec![e],
+            ..Library::default()
+        };
+        assert_eq!(Library::from_json(&l.to_json()), Ok(l));
     }
 
     #[test]

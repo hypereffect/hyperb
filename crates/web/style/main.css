@@ -81,29 +81,53 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 
+/* The page's address, which does not change. */
 .hb-url {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 4px;
+}
+
+.hb-address {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+/* The address field, on the welcome page only. */
+.hb-open {
+  align-self: stretch;
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hb-open input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  outline: 0;
   background: var(--field);
 }
 
-.hb-url:focus-within {
+.hb-open input:focus {
   border-color: var(--accent);
 }
 
-.hb-url input {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 0;
+.hb-open-button {
+  padding: 0 16px;
   border: 0;
-  outline: 0;
-  background: transparent;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .hb-status:empty::before {

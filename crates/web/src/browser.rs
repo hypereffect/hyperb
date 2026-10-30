@@ -1,8 +1,10 @@
-//! The browser in the page: an address bar, a connection to a hypereffect
-//! server, and the rendered session. Runs only in the browser (feature
-//! `hydrate`); the server renders a placeholder.
+//! The browser in the page: a connection to a hypereffect server, and the
+//! rendered session. Runs only in the browser (feature `hydrate`); the server
+//! renders a placeholder.
 //!
-//! Entering an address opens a connection (HTTP with SSE over fetch, or a
+//! The welcome page asks for an address once; the page then keeps it, and
+//! other addresses open in new browser tabs. Opening an address opens a
+//! connection (HTTP with SSE over fetch, or a
 //! remote wasm app run by the browser); when it opens the page sends `hello`
 //! and from then on feeds every message to the [`Client`]. When the transport
 //! closes the last state stays on screen with controls disabled, and a banner
@@ -10,7 +12,7 @@
 //!
 //! The identity is kept in `localStorage`, and so are the history and the
 //! favorites ([`crate::store`]), which the welcome page and the toolbar's
-//! menu list. The metadata the app sends gives the page its title and icon,
+//! menu list, or the demo apps while the history is empty. The metadata the app sends gives the page its title and icon,
 //! and its entries there theirs. `?url=<address>` opens an address, and so does
 //! `?link=<address>`, which is where the page has the browser send
 //! `web+hyperb://` links once the user lets it handle them.
@@ -21,7 +23,7 @@ use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
 use hyperb_core::hypereffect::{Component, Value};
 use hyperb_core::identity::Identity;
-use hyperb_core::library::{Entry, Library};
+use hyperb_core::library::{DEMOS, Entry, Library};
 use hyperb_core::net::{Connection, Event};
 use leptos::ev;
 use leptos::logging::warn;
@@ -334,6 +336,24 @@ fn open(url: &str) {
     }
 }
 
+/// Opens `addr` (or the welcome page) in this page, in a new browser tab.
+fn open_tab(addr: Option<&str>) {
+    let path = window().location().pathname().unwrap_or_default();
+    let url = match addr {
+        Some(a) => {
+            let Ok(params) = web_sys::UrlSearchParams::new_with_str("") else {
+                return;
+            };
+            params.append("url", a);
+            format!("{path}?{}", String::from(params.to_string()))
+        }
+        None => path,
+    };
+    if window().open_with_url_and_target(&url, "_blank").is_err() {
+        warn!("could not open {url}");
+    }
+}
+
 /// Lets the browser send `web+hyperb://` links to this page, as
 /// `?link=<address>`. The browser asks the user first.
 fn register_links() -> Result<(), String> {
@@ -483,37 +503,19 @@ pub fn Browser() -> impl IntoView {
     view! {
         <Title text=title/>
         <div class="hb">
-            <form
-                class="hb-toolbar"
-                on:submit=move |e| {
-                    e.prevent_default();
-                    go(address.get_untracked(), false);
-                }
-            >
+            <div class="hb-toolbar" class:he-hidden=move || !has_page.get()>
                 <button
                     type="button"
                     class="hb-icon-button"
                     title="Reconnect"
                     aria-label="Reconnect"
-                    on:click=move |_| match ctx.url.get_untracked() {
-                        Some(_) => ctx.reload(),
-                        None => go(address.get_untracked(), false),
-                    }
+                    on:click=move |_| ctx.reload()
                 >
                     "⟳"
                 </button>
                 <div class="hb-url">
                     <span class="hb-status" data-status=status title=status_title></span>
-                    <input
-                        type="text"
-                        inputmode="url"
-                        autocomplete="off"
-                        spellcheck="false"
-                        placeholder="Server address"
-                        aria-label="Server address"
-                        prop:value=move || address.get()
-                        on:input:target=move |ev| address.set(ev.target().value())
-                    />
+                    <span class="hb-address" title=move || address.get()>{move || address.get()}</span>
                 </div>
                 <button
                     type="button"
@@ -544,13 +546,22 @@ pub fn Browser() -> impl IntoView {
                 <button
                     type="button"
                     class="hb-icon-button"
+                    title="New tab"
+                    aria-label="New tab"
+                    on:click=move |_| open_tab(None)
+                >
+                    "+"
+                </button>
+                <button
+                    type="button"
+                    class="hb-icon-button"
                     title="Settings"
                     aria-label="Settings"
                     on:click=move |_| settings.set(true)
                 >
                     "⚙"
                 </button>
-            </form>
+            </div>
             <Show when=move || settings.get()>
                 <div class="he-backdrop" on:click=move |_| settings.set(false)>
                     <div
@@ -577,12 +588,13 @@ pub fn Browser() -> impl IntoView {
             </Show>
             <Show when=move || menu.get()>
                 <div class="hb-menu">
+                    // The page keeps its address: others open in new tabs.
                     <LibraryView
                         ctx
                         limit=50
                         open=Callback::new(move |a: String| {
                             menu.set(false);
-                            open.run(a);
+                            open_tab(Some(&a));
                         })
                     />
                 </div>
@@ -607,7 +619,7 @@ pub fn Browser() -> impl IntoView {
                     }
                         .into_any()
                 } else {
-                    view! { <Welcome ctx open/> }.into_any()
+                    view! { <Welcome ctx open settings/> }.into_any()
                 }
             }}
         </div>
@@ -615,8 +627,9 @@ pub fn Browser() -> impl IntoView {
 }
 
 #[component]
-fn Welcome(ctx: Ctx, open: Callback<String>) -> impl IntoView {
+fn Welcome(ctx: Ctx, open: Callback<String>, settings: RwSignal<bool>) -> impl IntoView {
     let registered = RwSignal::new(None::<Result<(), String>>);
+    let input = RwSignal::new(String::new());
     view! {
         <div class="hb-welcome">
             <h1 class="he-h1">"hyperb"</h1>
@@ -625,8 +638,30 @@ fn Welcome(ctx: Ctx, open: Callback<String>) -> impl IntoView {
                 <a class="hb-link" href="https://github.com/hypereffect/hyperb">"hyperb"</a>
                 " apps."
             </p>
+            <form
+                class="hb-open"
+                on:submit=move |e| {
+                    e.prevent_default();
+                    open.run(input.get_untracked());
+                }
+            >
+                <input
+                    type="text"
+                    inputmode="url"
+                    autocomplete="off"
+                    spellcheck="false"
+                    autofocus
+                    placeholder="Server address"
+                    aria-label="Server address"
+                    prop:value=move || input.get()
+                    on:input:target=move |ev| input.set(ev.target().value())
+                />
+                <button type="submit" class="hb-open-button">"Open"</button>
+            </form>
             <LibraryView ctx limit=12 open/>
             <p class="he-caption">
+                <button class="hb-link" on:click=move |_| settings.set(true)>"Settings"</button>
+                " · "
                 <button class="hb-link" on:click=move |_| registered.set(Some(register_links()))>
                     "Open web+hyperb:// links here"
                 </button>
@@ -640,7 +675,8 @@ fn Welcome(ctx: Ctx, open: Callback<String>) -> impl IntoView {
     }
 }
 
-/// Favorites, then the most recent `limit` history entries.
+/// Favorites, then the most recent `limit` history entries, or the demo apps
+/// while the history is empty.
 #[component]
 fn LibraryView(ctx: Ctx, limit: usize, open: Callback<String>) -> impl IntoView {
     let favorites = move || ctx.library.with(|l| l.favorites.clone());
@@ -659,9 +695,6 @@ fn LibraryView(ctx: Ctx, limit: usize, open: Callback<String>) -> impl IntoView 
     let clear = move |_| ctx.library.set(store::update(|l, _| l.clear_history()));
     view! {
         <div class="hb-library">
-            <Show when=move || ctx.library.with(|l| l.favorites.is_empty() && l.history.is_empty())>
-                <p class="he-caption">"No favorites or history yet."</p>
-            </Show>
             <Show when=move || ctx.library.with(|l| !l.favorites.is_empty())>
                 <h2 class="hb-library-heading">"Favorites"</h2>
                 <Entries entries=Signal::derive(favorites) icon="★" remove_title="Remove from favorites" open remove=unfavorite/>
@@ -672,6 +705,27 @@ fn LibraryView(ctx: Ctx, limit: usize, open: Callback<String>) -> impl IntoView 
                     <button class="hb-link" on:click=clear>"Clear history"</button>
                 </h2>
                 <Entries entries=Signal::derive(history) icon="🕘" remove_title="Remove from history" open remove=forget/>
+            </Show>
+            <Show when=move || ctx.library.with(|l| l.history.is_empty())>
+                <h2 class="hb-library-heading">"Demo apps"</h2>
+                <ul class="hb-entries">
+                    {DEMOS
+                        .iter()
+                        .map(|d| {
+                            view! {
+                                <li>
+                                    <button class="hb-entry" title=d.address on:click=move |_| open.run(d.address.to_string())>
+                                        <span class="hb-entry-icon" aria-hidden="true">"▶"</span>
+                                        <span class="hb-entry-text">
+                                            <span class="hb-entry-title">{d.title}</span>
+                                            <span class="hb-entry-address">{d.about}</span>
+                                        </span>
+                                    </button>
+                                </li>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
             </Show>
         </div>
     }
