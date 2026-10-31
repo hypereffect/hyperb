@@ -161,6 +161,39 @@ address keeps its query in the request URL as it is, since it belongs to the
 HTTP server (and is part of the URL of a remote wasm module), but renderers
 send it nowhere else, and an iroh address cannot have one.
 
+### 1.9 Moving a session
+
+An app can change the address of its session, so that the renderer reopens
+it there, as `history.replaceState` does on the web. hyperb defines one
+extension member of the hypereffect `metadata` message for this, `url`:
+
+```
+metadata {"name":"Restaurant","url":"/restaurant#room=abc&table=4"}
+```
+
+`url` is a URL reference resolved against the current address, so `/menu`
+changes the path (and drops any query and parameters), `#room=abc` only
+the parameters, and `menu` is relative to the current path. The result is
+normalized (section 1.6) and must keep:
+
+- the transport, the host and the port: an app cannot send the user
+  anywhere else;
+- the kind of session (section 1): a remote wasm app stays a `.wasm` path,
+  an HTTP app does not become one;
+- for a local wasm app, the file: it can change only its parameters.
+
+A `url` that does not resolve, or breaks one of those, is ignored, and so is
+one that resolves to the current address. Otherwise the renderer moves the
+session right away, without reconnecting: the address bar shows the new
+address, the history entry of the old one moves to it (keeping its title and
+icon, and replacing any entry the new address had), and a saved session
+reopens it. Favorites stay as they are. The current session goes on; only a
+reload, a reconnect or a restored tab opens the new address, sending its
+parameters in the `hello` as usual.
+
+Each `metadata` message replaces the previous one, so a later message without
+`url` leaves the address where it is.
+
 ## 2. HTTP session
 
 Implemented. See the module documentation of `crates/core/src/http.rs`:

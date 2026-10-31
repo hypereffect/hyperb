@@ -180,6 +180,13 @@ impl Browser {
         // Empty metadata is how every session starts: the title stays while
         // the app reconnects.
         let m = s.client.metadata();
+        // The app may move its session to another address on its host
+        // (`SPEC.md`, section 1.9), which a reload opens.
+        if changes.metadata
+            && let Some(to) = hyperb_core::library::moved(&s.url, m)
+        {
+            s.url = to;
+        }
         if changes.metadata && *m != Default::default() {
             self.title = m.name.clone().unwrap_or_else(|| address::label(&s.url));
         }

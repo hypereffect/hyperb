@@ -15,12 +15,14 @@
 //! `open` records the history, and the library calls return it as JSON. The
 //! metadata an app sends names its entries there, and the snapshot's `title`
 //! and `icon`; `icon` downloads `https` icons, which are kept with the store.
+//! An app may also move its session to another address on its host, which
+//! the snapshot's `url` and `address` follow.
 
 use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
 use hyperb_core::hypereffect::{Value, json, serde_json};
 use hyperb_core::identity::Identity;
-use hyperb_core::library::{Entry, Store};
+use hyperb_core::library::{self, Entry, Store};
 use hyperb_core::net::{Connection, Event};
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JClass, JObject, JString};
@@ -94,11 +96,8 @@ impl Inner {
         for d in self.client.take_diagnostics() {
             log::warn!("[{}] {d}", self.url);
         }
-        if self.client.take_changes().metadata
-            && self.entry.describe(self.client.metadata())
-            && let Err(e) = store().describe(&self.url, self.client.metadata())
-        {
-            log::warn!("cannot save the history: {e}");
+        if self.client.take_changes().metadata {
+            self.describe();
         }
         let mut tree = serde_json::to_value(self.client.tree()).unwrap_or_default();
         self.add_bound_values(&mut tree);
@@ -119,6 +118,29 @@ impl Inner {
             "tree": tree,
         })
         .to_string()
+    }
+
+    /// Takes the title and icon from the metadata the app sent, and moves
+    /// the session to the address it asks for, if any (`SPEC.md`, section
+    /// 1.9).
+    fn describe(&mut self) {
+        let m = self.client.metadata();
+        let moved = library::moved(&self.url, m);
+        if let Some(to) = &moved {
+            self.entry.address = address::hyperb(to);
+        }
+        let mut store = store();
+        if self.entry.describe(m)
+            && let Err(e) = store.describe(&self.url, m)
+        {
+            log::warn!("cannot save the history: {e}");
+        }
+        if let Some(to) = moved {
+            if let Err(e) = store.relocate(&self.url, &to) {
+                log::warn!("cannot save the history: {e}");
+            }
+            self.url = to;
+        }
     }
 
     /// Puts the value of each element's `bind` path in its `$value`

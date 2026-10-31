@@ -9,10 +9,6 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 hyperb-core = { path = "crates/core" }
-hypereffect = "0.6"
+hypereffect = "0.6.0"
 tokio = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-
-# Until hypereffect 0.6 is published.
-[patch.crates-io]
-hypereffect = { path = "../hypereffect/rust/hypereffect" }

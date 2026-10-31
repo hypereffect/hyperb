@@ -100,6 +100,28 @@ pub fn from_link(input: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// The address an app moves its session to with the `url` member of its
+/// metadata (`SPEC.md`, section 1.9): `reference` resolved against
+/// `current`, the address of the session. It keeps the transport, the host
+/// and port and the kind of session, and a local app keeps its file.
+pub fn relocate(current: &Url, reference: &str) -> Result<Url, String> {
+    let joined = current.join(reference.trim()).map_err(|e| e.to_string())?;
+    let url = normalize(joined.as_str())?;
+    if url.scheme() != current.scheme()
+        || url.host() != current.host()
+        || url.port() != current.port()
+    {
+        return Err("an app cannot change the host of its address".into());
+    }
+    if kind(&url) != kind(current) {
+        return Err("an app cannot change the kind of its session".into());
+    }
+    if kind(&url) == Kind::LocalWasm && url.path() != current.path() {
+        return Err("a local app cannot change its file".into());
+    }
+    Ok(url)
+}
+
 fn wasm(path: &str) -> Result<Url, String> {
     let (path, fragment) = match path.split_once('#') {
         Some((p, f)) => (p, Some(f)),
@@ -513,6 +535,56 @@ mod tests {
         assert!(from_link("wasm:///opt/a.wasm").is_err());
         assert!(from_link("/opt/a.wasm").is_err());
         assert!(from_link("~/a.wasm").is_err());
+    }
+
+    #[test]
+    fn relocations() {
+        let r = |from: &str, to: &str| {
+            relocate(&normalize(from).unwrap(), to)
+                .map(|u| hyperb(&u))
+                .map_err(drop)
+        };
+        let ok = |s: &str| Ok(s.to_string());
+        assert_eq!(
+            r("example.com/a/b#x=1", "/c?q=1"),
+            ok("hyperb://example.com/c?q=1")
+        );
+        assert_eq!(r("example.com/a/b", "c"), ok("hyperb://example.com/a/c"));
+        assert_eq!(
+            r("example.com/a#x=1", "#x=2"),
+            ok("hyperb://example.com/a#x=2")
+        );
+        assert_eq!(
+            r("example.com/a", "https://example.com/b"),
+            ok("hyperb://example.com/b")
+        );
+        assert_eq!(
+            r("example.com/a", "hyperb://example.com/b"),
+            ok("hyperb://example.com/b")
+        );
+        assert_eq!(
+            r(&format!("hyperb://{ID}/a"), "/b#r=1"),
+            Ok(format!("hyperb://{}/b#r=1", ID.to_ascii_lowercase()))
+        );
+        assert_eq!(
+            r("hyperb:///opt/a.wasm", "#r=1"),
+            ok("hyperb:///opt/a.wasm#r=1")
+        );
+        assert_eq!(
+            r("example.com/a.wasm", "/b.wasm#r=1"),
+            ok("hyperb://example.com/b.wasm#r=1")
+        );
+        // The host, the port, the transport and the kind stay.
+        assert!(r("example.com/a", "//evil.com/a").is_err());
+        assert!(r("example.com/a", "https://evil.com/a").is_err());
+        assert!(r("example.com/a", "http://example.com/a").is_err());
+        assert!(r("localhost:9001/a", "//localhost:9002/a").is_err());
+        assert!(r("example.com/a.wasm", "/b").is_err());
+        assert!(r("example.com/a", "/b.wasm").is_err());
+        assert!(r("hyperb:///opt/a.wasm", "/opt/b.wasm").is_err());
+        assert!(r(&format!("hyperb://{ID}/a"), "/b?q=1").is_err());
+        // The parameters must be valid.
+        assert!(r("example.com/a", "#x").is_err());
     }
 
     #[test]

@@ -78,6 +78,17 @@ impl Library {
         self.update(|_| Ok(()));
     }
 
+    /// Moves the history entry of `from` to `to`, where its app moved the
+    /// session.
+    pub fn relocate(&self, from: &Url, to: &Url) {
+        match self.store.borrow_mut().relocate(from, to) {
+            Ok(false) => return,
+            Ok(true) => {}
+            Err(e) => eprintln!("hyperb: cannot save the library: {e}"),
+        }
+        self.update(|_| Ok(()));
+    }
+
     /// The app icon at `src`: a `data:` URL, or an `https` one once it has
     /// been downloaded. One that has not is downloaded in the background,
     /// and listeners are called when it arrives.

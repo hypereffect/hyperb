@@ -23,7 +23,7 @@ use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
 use hyperb_core::hypereffect::{Component, Value};
 use hyperb_core::identity::Identity;
-use hyperb_core::library::{DEMOS, Entry, Library};
+use hyperb_core::library::{self, DEMOS, Entry, Library};
 use hyperb_core::net::{Connection, Event};
 use leptos::ev;
 use leptos::logging::warn;
@@ -244,21 +244,38 @@ impl Ctx {
         }
     }
 
-    /// Takes the title and icon from the metadata the app sent.
+    /// Takes the title and icon from the metadata the app sent, and moves
+    /// the page to the address it asks for, if any (`SPEC.md`, section 1.9).
     fn describe(self) {
         let m = self.client.with_value(|c| c.metadata().clone());
+        let Some(url) = self.url.get_untracked() else {
+            return;
+        };
+        let moved = library::moved(&url, &m);
         let mut changed = false;
-        self.entry
-            .update(|e| changed = e.as_mut().is_some_and(|e| e.describe(&m)));
-        if !changed {
+        self.entry.update(|e| {
+            if let Some(e) = e {
+                if let Some(to) = &moved {
+                    e.address = address::hyperb(to);
+                }
+                changed = e.describe(&m);
+            }
+        });
+        if !changed && moved.is_none() {
             return;
         }
-        if let Some(url) = self.url.get_untracked() {
-            let mut stored = false;
-            let lib = store::update(|l, _| stored = l.describe(&url, &m));
-            if stored {
-                self.library.set(lib);
+        let mut stored = false;
+        let lib = store::update(|l, _| {
+            stored = changed && l.describe(&url, &m);
+            if let Some(to) = &moved {
+                stored |= l.relocate(&url, to);
             }
+        });
+        if stored {
+            self.library.set(lib);
+        }
+        if let Some(to) = moved {
+            self.url.set(Some(to));
         }
     }
 
@@ -420,18 +437,16 @@ pub fn Browser() -> impl IntoView {
     // Addresses in the page's own URL may come from any other page, so they
     // are links; addresses the user types or picks are not.
     let go = move |input: String, link: bool| match ctx.navigate(&input, link) {
-        Ok(()) => {
-            let addr = ctx
-                .url
-                .get_untracked()
-                .map(|u| address::hyperb(&u))
-                .unwrap_or_default();
-            set_query_address(&addr);
-            address.set(addr);
-            error.set(None);
-        }
+        Ok(()) => error.set(None),
         Err(e) => error.set(Some(e)),
     };
+    // The address of the page, also when its app moves it.
+    Effect::new(move |_| {
+        if let Some(addr) = ctx.url.with(|u| u.as_ref().map(address::hyperb)) {
+            set_query_address(&addr);
+            address.set(addr);
+        }
+    });
     if let Some(a) = query_address() {
         go(a, true);
     }

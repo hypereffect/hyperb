@@ -247,7 +247,17 @@ class Browser : Host {
         snapshot = s.snapshot()
         snapshot?.let { address = it.address }
         thread(name = "hyperb-session") {
-            s.run { snap -> main.post { if (session === s) snapshot = snap } }
+            s.run { snap ->
+                main.post {
+                    if (session !== s) return@post
+                    // The app moved its session: the bar and the history follow.
+                    if (snap.address != snapshot?.address) {
+                        address = snap.address
+                        loadLibrary()
+                    }
+                    snapshot = snap
+                }
+            }
         }
     }
 

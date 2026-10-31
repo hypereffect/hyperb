@@ -506,22 +506,36 @@ impl Tab {
         }
     }
 
-    /// Takes the title and icon from the metadata the app sent.
+    /// Takes the title and icon from the metadata the app sent, and moves
+    /// the tab to the address it asks for, if any (`SPEC.md`, section 1.9).
     fn describe(&self) {
-        let (url, entry, m) = {
+        let (url, moved, entry, m) = {
             let mut s = self.session.borrow_mut();
             let s = &mut *s;
             let m = s.client.metadata().clone();
-            let (Some(url), Some(entry)) = (&s.url, &mut s.entry) else {
+            let (Some(url), Some(entry)) = (&mut s.url, &mut s.entry) else {
                 return;
             };
-            if !entry.describe(&m) {
+            let from = url.clone();
+            let moved = hyperb_core::library::moved(url, &m);
+            if let Some(to) = &moved {
+                *url = to.clone();
+                entry.address = address::hyperb(to);
+            }
+            if !entry.describe(&m) && moved.is_none() {
                 return;
             }
-            (url.clone(), entry.clone(), m)
+            (from, moved, entry.clone(), m)
         };
-        self.show_entry(&entry);
         self.library.describe(&url, &m);
+        match moved {
+            Some(to) => {
+                self.library.relocate(&url, &to);
+                self.set_address(&to, entry);
+                self.update_star();
+            }
+            None => self.show_entry(&entry),
+        }
         self.changed();
     }
 

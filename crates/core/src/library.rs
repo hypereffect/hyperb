@@ -123,6 +123,14 @@ pub fn is_demo(url: &Url) -> bool {
     DEMOS.iter().any(|d| d.address == address)
 }
 
+/// Where the app at `url` moved its session with the `url` member of the
+/// metadata it sent (`SPEC.md`, section 1.9), if it did. A `url` that
+/// [`address::relocate`] refuses is ignored.
+pub fn moved(url: &Url, m: &Metadata) -> Option<Url> {
+    let to = address::relocate(url, m.extra.get("url")?).ok()?;
+    (to != *url).then_some(to)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     /// The `hyperb://` address.
@@ -261,6 +269,23 @@ impl Library {
             }
         }
         changed
+    }
+
+    /// Moves the history entry of `from` to `to`, keeping its title, icon,
+    /// time and place, for an app that moved its session ([`moved`]), and
+    /// returns whether anything changed. The favorites stay as they are.
+    pub fn relocate(&mut self, from: &Url, to: &Url) -> bool {
+        let (from, to_address) = (address::hyperb(from), address::hyperb(to));
+        if from == to_address || !self.history.iter().any(|e| e.address == from) {
+            return false;
+        }
+        self.history.retain(|e| e.address != to_address);
+        if is_demo(to) {
+            self.history.retain(|e| e.address != from);
+        } else if let Some(e) = self.history.iter_mut().find(|e| e.address == from) {
+            e.address = to_address;
+        }
+        true
     }
 
     /// Removes `address` from the history.
@@ -427,6 +452,18 @@ mod store {
             }
             write_atomic(&self.dir.join(LIBRARY), self.library.to_json().as_bytes())?;
             self.prune()?;
+            Ok(true)
+        }
+
+        /// Moves the history entry of `from` to `to` (see
+        /// [`Library::relocate`]), saving only if that changed it, and
+        /// returns whether it did.
+        pub fn relocate(&mut self, from: &Url, to: &Url) -> io::Result<bool> {
+            self.reload();
+            if !self.library.relocate(from, to) {
+                return Ok(false);
+            }
+            write_atomic(&self.dir.join(LIBRARY), self.library.to_json().as_bytes())?;
             Ok(true)
         }
 
@@ -657,6 +694,33 @@ mod tests {
         assert_eq!(l.favorites[0].time, 1);
         l.set_favorite(&a, false, 3);
         assert!(!l.is_favorite(&a));
+    }
+
+    #[test]
+    fn apps_move_their_history_entry() {
+        let mut l = Library::default();
+        let (a, b, c) = (url("example.com/a"), url("example.com/b"), url("x.com"));
+        l.visit(&b, 1);
+        l.visit(&c, 2);
+        l.visit(&a, 3);
+        l.set_favorite(&a, true, 4);
+        let m = Metadata::new().name("A").extra("url", "b");
+        let to = moved(&a, &m).unwrap();
+        assert_eq!(to, b);
+        assert!(l.describe(&a, &m));
+        assert!(l.relocate(&a, &to));
+        assert!(!l.relocate(&a, &to));
+        let addresses: Vec<_> = l.history.iter().map(|e| e.address.as_str()).collect();
+        // The entry b had is replaced.
+        assert_eq!(addresses, ["hyperb://example.com/b", "hyperb://x.com/"]);
+        assert_eq!((l.history[0].title.as_str(), l.history[0].time), ("A", 3));
+        assert!(l.is_favorite(&a));
+        // Nothing moves to where it is, nor to another host.
+        assert_eq!(moved(&to, &m), None);
+        assert_eq!(moved(&a, &Metadata::new().extra("url", "//x.com/")), None);
+        assert_eq!(moved(&a, &Metadata::new()), None);
+        let to = moved(&a, &Metadata::new().extra("url", "#r=1")).unwrap();
+        assert_eq!(address::hyperb(&to), "hyperb://example.com/a#r=1");
     }
 
     #[test]
