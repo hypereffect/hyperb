@@ -4320,9 +4320,7 @@ dependencies = [
 
 [[package]]
 name = "hypereffect"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae94dc76baa4546bcbf9f3f9bdbd5e12b8c1d3b6a3a29de287e1bb66a2dd5d3"
+version = "0.6.0"
 dependencies = [
  "cel",
  "serde",
