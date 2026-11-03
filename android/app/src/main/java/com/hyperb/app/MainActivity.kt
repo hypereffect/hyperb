@@ -3,6 +3,9 @@ package com.hyperb.app
 import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -60,11 +63,14 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,6 +103,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlin.concurrent.thread
@@ -104,11 +113,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * A window: the launcher opens one on the welcome page, and every link opens another
- * ([LinkActivity]), each with its own session. They share the process and the Rust core.
+ * A window: the launcher opens the browser on the welcome page, and every app opened on its own
+ * gets another ([LinkActivity]), each with its own session. They share the process and the Rust
+ * core.
  */
 open class MainActivity : ComponentActivity() {
     private val browser = Browser()
+
+    /** Shows only the app, without the toolbar or the welcome page ([LinkActivity]). */
+    protected open val standalone = false
 
     /** A scanned code is opened like a link from another app: it cannot open local files. */
     private fun openScanned(text: String?) {
@@ -166,9 +179,50 @@ open class MainActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(title, bitmap))
             }
-            HyperbTheme { BrowserScreen(browser, ::scan) }
+            HyperbTheme { BrowserScreen(browser, ::scan, standalone, ::openOnItsOwn, ::addToHomeScreen) }
         }
     }
+
+    /** Opening the address of this window again brings it back, reconnecting if it is closed. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (browser.snapshot?.state == "closed") browser.reload()
+    }
+
+    /** Moves the app of this window to a window of its own, and goes back to the welcome page. */
+    private fun openOnItsOwn(snap: Snapshot) {
+        startActivity(appIntent(snap.address))
+        browser.home()
+    }
+
+    /**
+     * Asks the home screen to pin a shortcut that opens the app on its own, with its title,
+     * description and icon (or hyperb's).
+     */
+    private fun addToHomeScreen(snap: Snapshot) {
+        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
+            Toast.makeText(this, "The home screen does not take shortcuts", Toast.LENGTH_SHORT).show()
+            return
+        }
+        thread(name = "hyperb-shortcut") {
+            val bitmap = snap.icon?.let(::loadIcon)
+            runOnUiThread {
+                val icon = bitmap?.let { IconCompat.createWithBitmap(square(it)) }
+                    ?: IconCompat.createWithResource(this, R.mipmap.ic_launcher)
+                val shortcut = ShortcutInfoCompat.Builder(this, "app:" + snap.address)
+                    .setShortLabel(snap.title)
+                    .setLongLabel(snap.description ?: snap.title)
+                    .setIcon(icon)
+                    .setIntent(appIntent(snap.address))
+                    .build()
+                ShortcutManagerCompat.requestPinShortcut(this, shortcut, null)
+            }
+        }
+    }
+
+    /** Opens [address] on its own, in the window it has if there is one. */
+    private fun appIntent(address: String) =
+        Intent(Intent.ACTION_VIEW, Uri.parse(address), this, LinkActivity::class.java)
 
     /**
      * Opens a URL a button asked for: a hyperb address in a window of its own, like a link from
@@ -177,7 +231,7 @@ open class MainActivity : ComponentActivity() {
     private fun openUrl(open: Open) {
         val uri = Uri.parse(open.url)
         if (open.app) {
-            startActivity(Intent(Intent.ACTION_VIEW, uri, this, LinkActivity::class.java))
+            startActivity(appIntent(open.url))
             return
         }
         try {
@@ -208,8 +262,27 @@ open class MainActivity : ComponentActivity() {
     }
 }
 
-/** A window for one link, in a task of its own (`documentLaunchMode="always"`). */
-class LinkActivity : MainActivity()
+/**
+ * A window for one app, opened by a link, a home screen shortcut or "Open on its own": a task of
+ * its own per address (`documentLaunchMode="intoExisting"`), showing only the app.
+ */
+class LinkActivity : MainActivity() {
+    override val standalone = true
+}
+
+/** [bitmap] centered in a square of [SHORTCUT_ICON] pixels, for a shortcut icon. */
+private fun square(bitmap: Bitmap): Bitmap {
+    val out = Bitmap.createBitmap(SHORTCUT_ICON, SHORTCUT_ICON, Bitmap.Config.ARGB_8888)
+    val scale = SHORTCUT_ICON.toFloat() / maxOf(bitmap.width, bitmap.height)
+    val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+    val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+    val x = (SHORTCUT_ICON - w) / 2
+    val y = (SHORTCUT_ICON - h) / 2
+    Canvas(out).drawBitmap(bitmap, null, Rect(x, y, x + w, y + h), null)
+    return out
+}
+
+private const val SHORTCUT_ICON = 192
 
 /**
  * The address bar, the current session, and the history and favorites. All state is read and
@@ -300,25 +373,38 @@ class Browser : Host {
     }
 }
 
+/**
+ * The browser, or just the app if [standalone]. [onOwn] and [onPin] open the app on its own and
+ * add it to the home screen.
+ */
 @Composable
-fun BrowserScreen(b: Browser, onScan: () -> Unit) {
-    BackHandler(enabled = b.snapshot != null) { b.home() }
+fun BrowserScreen(
+    b: Browser,
+    onScan: () -> Unit,
+    standalone: Boolean,
+    onOwn: (Snapshot) -> Unit,
+    onPin: (Snapshot) -> Unit,
+) {
+    BackHandler(enabled = !standalone && b.snapshot != null) { b.home() }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding()) {
-            Toolbar(b, onScan)
+            if (!standalone) Toolbar(b, onScan, onOwn, onPin)
             val snap = b.snapshot
             if (snap?.state == "connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
             b.error?.let { Banner(it, null) }
             if (snap?.state == "closed") {
                 Banner(snap.reason?.let { "Disconnected: $it" } ?: "Disconnected. The server closed the connection.", b::reload)
             }
-            if (snap == null) Welcome(b) else Page(snap.tree, b, Modifier.fillMaxSize())
+            when {
+                snap != null -> Page(snap.tree, b, Modifier.fillMaxSize())
+                !standalone -> Welcome(b)
+            }
         }
     }
 }
 
 @Composable
-private fun Toolbar(b: Browser, onScan: () -> Unit) {
+private fun Toolbar(b: Browser, onScan: () -> Unit, onOwn: (Snapshot) -> Unit, onPin: (Snapshot) -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -357,8 +443,27 @@ private fun Toolbar(b: Browser, onScan: () -> Unit) {
         IconButton(onClick = b::reload, enabled = snap != null || b.address.isNotBlank()) {
             Icon(Icons.Default.Refresh, "Reconnect")
         }
+        var menu by remember { mutableStateOf(false) }
         var settings by remember { mutableStateOf(false) }
-        IconButton(onClick = { settings = true }) { Icon(Icons.Default.Settings, "Settings") }
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Open on its own") },
+                    enabled = snap != null,
+                    onClick = { menu = false; snap?.let(onOwn) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to home screen") },
+                    enabled = snap != null,
+                    onClick = { menu = false; snap?.let(onPin) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    onClick = { menu = false; settings = true },
+                )
+            }
+        }
         if (settings) Settings(b.publicKey) { settings = false }
     }
 }

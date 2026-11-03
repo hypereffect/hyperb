@@ -112,6 +112,7 @@ impl Inner {
             "label": address::label(&self.url),
             "title": self.entry.title,
             "icon": self.entry.icon,
+            "description": self.client.metadata().description,
             "state": state,
             "reason": reason,
             "connected": self.client.is_connected(),

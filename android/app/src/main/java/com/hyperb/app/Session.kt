@@ -53,6 +53,8 @@ class Snapshot(
     val title: String,
     /** The app's icon, if it sent one; `data:` and `https` URLs are shown ([loadIcon]). */
     val icon: String?,
+    /** What the app says it is, if it said so. */
+    val description: String?,
     /** `connecting`, `open` or `closed`. */
     val state: String,
     val reason: String?,
@@ -69,6 +71,7 @@ class Snapshot(
                 label = o.getString("label"),
                 title = o.optString("title", o.getString("label")),
                 icon = o.opt("icon") as? String,
+                description = (o.opt("description") as? String)?.trim()?.takeIf { it.isNotEmpty() },
                 state = o.getString("state"),
                 reason = o.opt("reason") as? String,
                 connected = o.optBoolean("connected"),
