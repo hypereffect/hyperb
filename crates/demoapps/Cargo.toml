@@ -38,7 +38,6 @@ restaurant = []
 saas = []
 smarthome = []
 textstats = []
-therapist = []
 
 [dev-dependencies]
 hyperb-core = { workspace = true, features = ["wasm"] }

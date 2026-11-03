@@ -54,11 +54,6 @@ pub const DEMOS: &[Demo] = &[
         "Reserve a table",
     ),
     demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/therapist.wasm",
-        "Therapist",
-        "Book a weekly session",
-    ),
-    demo(
         "hyperb://hypereffect.github.io/hyperb/apps/textstats.wasm",
         "Text stats",
         "Statistics of a text",

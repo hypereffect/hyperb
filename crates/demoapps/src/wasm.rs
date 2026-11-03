@@ -39,7 +39,6 @@ select_app! {
     "saas" => crate::saas::Saas,
     "smarthome" => crate::smarthome::SmartHome,
     "textstats" => crate::textstats::TextStats,
-    "therapist" => crate::therapist::Therapist,
 }
 
 use hypereffect::server::Server;
