@@ -67,6 +67,9 @@ pub struct Tab {
     changed: RefCell<Option<Box<dyn Fn()>>>,
     /// Called with the addresses to open in another tab.
     open_app: RefCell<Box<OpenApp>>,
+    /// Shows only the app, without the toolbar and the debugger
+    /// ([`crate::standalone`]).
+    standalone: bool,
 }
 
 /// What a tab calls with an address to open in another tab, and whether it
@@ -94,7 +97,7 @@ enum State {
 }
 
 impl Tab {
-    pub fn new(identity: Identity, library: Rc<Library>) -> Rc<Tab> {
+    pub fn new(identity: Identity, library: Rc<Library>, standalone: bool) -> Rc<Tab> {
         Rc::new_cyclic(|weak: &std::rc::Weak<Tab>| {
             // Tab strip entry.
             // Fixed sizes, so the icon and the close button line up in
@@ -223,16 +226,18 @@ impl Tab {
             let debug = Debugger::new(weak.clone());
             let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             body.append(&content);
-            body.append(&debug.widget);
-            // The debugger only takes space the page does not use.
-            let panel = debug.widget.clone();
-            body.add_tick_callback(move |body, _| {
-                let room = body.width() >= CONTENT_WIDTH + Debugger::WIDTH;
-                if panel.is_visible() != room {
-                    panel.set_visible(room);
-                }
-                glib::ControlFlow::Continue
-            });
+            if !standalone {
+                body.append(&debug.widget);
+                // The debugger only takes space the page does not use.
+                let panel = debug.widget.clone();
+                body.add_tick_callback(move |body, _| {
+                    let room = body.width() >= CONTENT_WIDTH + Debugger::WIDTH;
+                    if panel.is_visible() != room {
+                        panel.set_visible(room);
+                    }
+                    glib::ControlFlow::Continue
+                });
+            }
             page.append(&body);
 
             {
@@ -318,6 +323,7 @@ impl Tab {
                 library,
                 changed: RefCell::new(None),
                 open_app: RefCell::new(Box::new(|_, _| {})),
+                standalone,
             }
         })
     }
@@ -345,6 +351,13 @@ impl Tab {
     /// has opened one.
     pub fn entry(&self) -> Option<Entry> {
         self.session.borrow().entry.clone()
+    }
+
+    /// What the app says it is, if it is connected and said so.
+    pub fn description(&self) -> Option<String> {
+        let s = self.session.borrow();
+        let d = s.client.metadata().description.as_deref()?.trim();
+        (!d.is_empty()).then(|| d.to_string())
     }
 
     pub fn has_address(&self) -> bool {
@@ -423,7 +436,7 @@ impl Tab {
         self.title.set_tooltip_text(Some(&addr));
         self.address_label.set_text(&addr);
         self.address_label.set_tooltip_text(Some(&addr));
-        self.toolbar.set_visible(true);
+        self.toolbar.set_visible(!self.standalone);
         self.show_entry(&entry);
         self.session.borrow_mut().entry = Some(entry);
     }

@@ -1,16 +1,20 @@
 //! hyperb: a browser for hypereffect servers.
 //!
 //! ```text
-//! hyperb-desktop [address...]            # each address opens in a tab
+//! hyperb-desktop                         # the browser, with tabs
+//! hyperb-desktop [address...]            # each address opens on its own
 //! hyperb-desktop --links [address...]    # the same, for links from other apps
 //! ```
 //!
-//! One instance runs per user: launching it again opens the addresses in the
-//! running window. The system opens `hyperb://` and `web+hyperb://` links
-//! with `--links` (see `com.hyperb.app.desktop`), which refuses local files.
+//! Started without addresses, it is the browser: it reopens the tabs of the
+//! last run, each connecting only once it is first shown. One browser runs
+//! per user: launching it again opens a new tab in the running window.
 //!
-//! Started without addresses, it reopens the tabs of the last run, each
-//! connecting only once it is first shown.
+//! Addresses open as apps of their own, in a window without tabs or
+//! debugger ([`standalone`]); right-clicking a tab of the browser makes a
+//! desktop shortcut that opens its app that way ([`shortcut`]). The system
+//! opens `hyperb://` and `web+hyperb://` links with `--links` (see
+//! `com.hyperb.app.desktop`), which refuses local files.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -18,6 +22,8 @@ mod clamp;
 mod debug;
 mod library;
 mod render;
+mod shortcut;
+mod standalone;
 mod tab;
 
 use gtk::prelude::*;
@@ -33,8 +39,10 @@ use tab::Tab;
 const APP_ID: &str = "com.hyperb.app";
 
 fn main() -> glib::ExitCode {
+    // Apps opened on their own run apart from the browser.
+    let id = standalone::args_id();
     let app = gtk::Application::builder()
-        .application_id(APP_ID)
+        .application_id(id.as_deref().unwrap_or(APP_ID))
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
         .build();
     app.add_main_option(
@@ -71,26 +79,31 @@ fn main() -> glib::ExitCode {
             .map(|a| a.to_string_lossy().into_owned())
             .filter(|a| !a.is_empty())
             .collect();
+        if !urls.is_empty() {
+            // Launching an app that is open already shows it again.
+            let open = app.application_id().is_some_and(|id| id != APP_ID);
+            match app.active_window() {
+                Some(w) if open => w.present(),
+                _ => {
+                    let (identity, library) = state.borrow().clone().expect("started up");
+                    for u in &urls {
+                        standalone::open(app, identity.clone(), library.clone(), u, links);
+                    }
+                }
+            }
+            return glib::ExitCode::SUCCESS;
+        }
         let b = window.borrow().upgrade();
         match b {
             Some(b) => {
-                if urls.is_empty() {
-                    b.add_tab(None, false);
-                }
-                b.open_all(&urls, links);
+                b.add_tab(None, false);
                 b.window.present();
             }
             None => {
                 let (identity, library) = state.borrow().clone().expect("started up");
-                let restore = urls.is_empty();
                 let session = library.session();
                 let b = Browser::open(app, identity, library);
-                if restore {
-                    // Nothing was asked for: reopen what was open last time.
-                    b.restore(session);
-                } else {
-                    b.open_all(&urls, links);
-                }
+                b.restore(session);
                 *window.borrow_mut() = Rc::downgrade(&b);
             }
         }
@@ -313,17 +326,6 @@ impl Browser {
         window.present();
     }
 
-    /// Opens each address in a new tab, or an empty tab if there are none
-    /// and no tab yet.
-    fn open_all(self: &Rc<Self>, urls: &[String], links: bool) {
-        if urls.is_empty() && self.tabs.borrow().is_empty() {
-            self.add_tab(None, false);
-        }
-        for u in urls {
-            self.add_tab(Some(u), links);
-        }
-    }
-
     /// Reopens the tabs of a saved session without connecting them, then
     /// shows (and so connects) the last one.
     fn restore(self: &Rc<Self>, session: Vec<Entry>) {
@@ -362,7 +364,7 @@ impl Browser {
     }
 
     fn append_tab(self: &Rc<Self>) -> Rc<Tab> {
-        let t = Tab::new(self.identity.clone(), self.library.clone());
+        let t = Tab::new(self.identity.clone(), self.library.clone(), false);
         self.notebook.append_page(&t.page, Some(&t.tab_label));
         self.notebook.set_tab_reorderable(&t.page, true);
         {
@@ -402,8 +404,48 @@ impl Browser {
                 }
             });
         }
+        self.tab_menu(&t);
         self.tabs.borrow_mut().push(t.clone());
         t
+    }
+
+    /// The menu of a tab, on right-click: a desktop shortcut to its app.
+    fn tab_menu(self: &Rc<Self>, t: &Rc<Tab>) {
+        let create = gio::SimpleAction::new("shortcut", None);
+        {
+            let b = Rc::downgrade(self);
+            let tw = Rc::downgrade(t);
+            create.connect_activate(move |_, _| {
+                if let (Some(b), Some(t)) = (b.upgrade(), tw.upgrade()) {
+                    shortcut::create(b.window.upcast_ref(), &b.library, &t);
+                }
+            });
+        }
+        let actions = gio::SimpleActionGroup::new();
+        actions.add_action(&create);
+        t.tab_label.insert_action_group("tab", Some(&actions));
+        let menu = gio::Menu::new();
+        menu.append(Some("Create desktop shortcut"), Some("tab.shortcut"));
+        let click = gtk::GestureClick::new();
+        click.set_button(gdk::BUTTON_SECONDARY);
+        let tw = Rc::downgrade(t);
+        click.connect_pressed(move |_, _, x, y| {
+            let Some(t) = tw.upgrade() else { return };
+            // Only a tab with an app has something to make a shortcut to.
+            create.set_enabled(t.has_address());
+            let popover = gtk::PopoverMenu::from_model(Some(&menu));
+            popover.set_parent(&t.tab_label);
+            popover.set_has_arrow(false);
+            popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            // Made for each click, and gone once closed, so the label never
+            // outlives a child.
+            popover.connect_closed(|p| {
+                let p = p.clone();
+                glib::idle_add_local_once(move || p.unparent());
+            });
+            popover.popup();
+        });
+        t.tab_label.add_controller(click);
     }
 
     /// Remembers the open addresses with their titles and icons, to reopen
