@@ -1,4 +1,4 @@
-//! The QR demo: type something, get a QR code as an image element.
+//! The QR demo: type something, press Generate, and get a QR code as an image element.
 //!
 //! The server encodes the text, draws the modules into a 1-bit PNG and sends
 //! it as a `data:` URI in a signal that the image element's `src` reads.
@@ -74,16 +74,14 @@ impl App for Qr {
                 .label("Text or link")
                 .bind("form.text")
                 .placeholder("https://example.com")
-                .variant("multiline")
-                .on_change(Handler::action("generate")),
+                .variant("multiline"),
         );
         out.element(
             ui::select("level")
                 .parent("input")
                 .label("Error correction")
                 .bind("form.level")
-                .options(cel("s.menu.levels"))
-                .on_change(Handler::action("generate")),
+                .options(cel("s.menu.levels")),
         );
         out.element(
             ui::slider("scale")
@@ -91,8 +89,7 @@ impl App for Qr {
                 .label("Pixels per module")
                 .bind("form.scale")
                 .min(2)
-                .max(12)
-                .on_change(Handler::action("generate")),
+                .max(12),
         );
         out.element(
             ui::button("generate")
@@ -175,8 +172,12 @@ mod tests {
     fn text_becomes_an_image() {
         let mut l = Loopback::<Qr>::new();
         assert_eq!(l.client.attr("code", "visible"), Some(json!(false)));
+        // Typing alone does not generate a code.
         l.write("form.text", json!("https://example.com"));
-        assert!(l.trigger("text", "onChange"));
+        assert!(!l.trigger("text", "onChange"));
+        assert_eq!(l.client.attr("code", "visible"), Some(json!(false)));
+        // Pressing Generate does.
+        assert!(l.trigger("generate", "onPress"));
         assert_eq!(l.client.attr("code", "visible"), Some(json!(true)));
         let src = l.client.attr("code", "src").unwrap();
         assert!(src.as_str().unwrap().starts_with("data:image/png;base64,"));
@@ -184,9 +185,11 @@ mod tests {
             l.client.attr("info", "text"),
             Some(json!("25×25 modules, 19 bytes of text"))
         );
-        // A bigger scale makes a bigger picture.
+        // A bigger scale makes a bigger picture once Generate is pressed again.
         l.write("form.scale", json!(12));
-        assert!(l.trigger("scale", "onChange"));
+        assert!(!l.trigger("scale", "onChange"));
+        assert_eq!(l.client.attr("code", "src").unwrap(), src);
+        assert!(l.trigger("generate", "onPress"));
         assert_ne!(l.client.attr("code", "src").unwrap(), src);
         // Clearing the text clears the image.
         l.write("form.text", json!(""));
