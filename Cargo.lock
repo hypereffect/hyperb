@@ -4241,7 +4241,9 @@ name = "hyperb-demoapps"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.3.4",
  "harper-core",
+ "hyperb-core",
  "hypereffect",
  "png",
  "qrcode",
@@ -4284,16 +4286,6 @@ dependencies = [
  "textwrap",
  "unicode-width",
  "url",
-]
-
-[[package]]
-name = "hyperb-wasmapps"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.3.4",
- "hyperb-core",
- "hyperb-demoapps",
- "hypereffect",
 ]
 
 [[package]]

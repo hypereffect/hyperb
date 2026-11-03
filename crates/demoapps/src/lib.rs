@@ -1,5 +1,5 @@
-//! The demo apps. They need nothing from a server, so `hyperb-wasmapps`
-//! builds each of them as a wasm module.
+//! The demo apps. They need nothing from a server, so they can run natively
+//! and as wasm modules in the renderer.
 
 pub mod billsplit;
 pub mod chart;
@@ -17,3 +17,8 @@ pub mod saas;
 pub mod smarthome;
 pub mod textstats;
 pub mod therapist;
+
+/// The wasm module ABI the renderer loads (`SPEC.md`, section 4). A wasm build
+/// hosts exactly one app, chosen by feature.
+#[cfg(target_arch = "wasm32")]
+mod wasm;

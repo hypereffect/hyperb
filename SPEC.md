@@ -9,7 +9,7 @@ Status: all of it is implemented in `hyperb-core` (`address.rs`, `http.rs`,
 and `net/iroh.rs`, `net/wasm.rs` behind the `iroh` and `wasm` features). The
 desktop, terminal and Android renderers have every kind of session, and the web build has HTTP, iroh (through relays only) and remote wasm
 (`net/wasm_js.rs`, see section 4). The demo apps are wasm modules
-(`crates/wasmapps`), published with the web renderer at
+(`crates/demoapps`), published with the web renderer at
 `https://hypereffect.github.io/hyperb/apps/<app>.wasm`.
 
 ## 1. Addresses

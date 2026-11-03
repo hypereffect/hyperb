@@ -55,3 +55,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check
         run: cargo check -p hyperb-tui
+
+  demoapps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Build the wasm modules
+        run: just wasm-apps
+      - name: Test the apps and the modules
+        run: cargo test -p hyperb-demoapps

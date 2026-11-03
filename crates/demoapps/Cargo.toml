@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-# The demo apps, which `hyperb-wasmapps` builds as wasm modules.
+# The demo apps. This is a plain library natively (for tests and tooling) and a
+# wasm module when built for wasm32 with exactly one app feature selected:
+# `just wasm-apps` builds each app into its own module.
 
 [lib]
 name = "demoapps"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 hypereffect.workspace = true
@@ -15,11 +18,28 @@ png = "0.18"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
 harper-core = { version = "2.13.0", optional = true }
+# Harper needs random numbers in wasm; the module provides its own source, so
+# build with `--cfg getrandom_backend="custom"` (see `just wasm-apps`).
+getrandom = { version = "0.3", optional = true }
 
 [features]
 default = ["grammar"]
 # The grammar checker, on Harper, which is large to build.
-grammar = ["dep:harper-core"]
+grammar = ["dep:harper-core", "dep:getrandom"]
+# The app that a wasm build hosts; exactly one, with `--no-default-features`.
+billsplit = []
+chart = []
+dbclient = []
+finance = []
+minecraft = []
+pomodoro = []
+qr = []
+restaurant = []
+saas = []
+smarthome = []
+textstats = []
+therapist = []
 
 [dev-dependencies]
+hyperb-core = { workspace = true, features = ["wasm"] }
 hypereffect = { workspace = true, features = ["client"] }

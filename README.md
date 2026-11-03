@@ -9,7 +9,7 @@ A browser for [hypereffect](https://crates.io/crates/hypereffect) apps. It opens
 It comes as a GTK4 desktop app, a terminal app, an Android app and a [web app](https://hypereffect.github.io/hyperb/).
 
 # Demo apps
-The demo apps are wasm modules (`crates/demoapps`, built by `crates/wasmapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Open one of these addresses in any hyperb app, or follow a link to open it in the web app:
+The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Open one of these addresses in any hyperb app, or follow a link to open it in the web app:
 
 * [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
 * [`therapist`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/therapist.wasm): book a weekly session

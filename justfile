@@ -42,8 +42,8 @@ wasm-apps:
     # Harper (grammar) needs random numbers; the module makes its own.
     export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='--cfg getrandom_backend="custom"'
     for app in {{wasm_apps}}; do
-        cargo build -q --target wasm32-unknown-unknown --release -p hyperb-wasmapps --features "$app"
-        cp "$target/wasm32-unknown-unknown/release/wasmapps.wasm" "wasm-apps/$app.wasm"
+        cargo build -q --target wasm32-unknown-unknown --release -p hyperb-demoapps --no-default-features --features "$app"
+        cp "$target/wasm32-unknown-unknown/release/demoapps.wasm" "wasm-apps/$app.wasm"
     done
 
 # Serve wasm-apps/ over HTTP, with CORS for the web app, and print the demo apps' hyperb:// addresses
