@@ -12,3 +12,16 @@ hyperb-core = { path = "crates/core" }
 hypereffect = "0.6.0"
 tokio = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+# Dev builds compile wasm apps with an optimized wasmtime: unoptimized,
+# Cranelift takes tens of seconds per module on a phone.
+[profile.dev.package]
+cranelift-codegen = { opt-level = 3 }
+cranelift-frontend = { opt-level = 3 }
+cranelift-bforest = { opt-level = 3 }
+cranelift-entity = { opt-level = 3 }
+regalloc2 = { opt-level = 3 }
+wasmparser = { opt-level = 3 }
+wasmtime = { opt-level = 3 }
+wasmtime-environ = { opt-level = 3 }
+wasmtime-internal-cranelift = { opt-level = 3 }
