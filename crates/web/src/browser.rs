@@ -2,8 +2,9 @@
 //! rendered session. Runs only in the browser (feature `hydrate`); the server
 //! renders a placeholder.
 //!
-//! The welcome page asks for an address once; the page then keeps it, and
-//! other addresses open in new browser tabs. Opening an address opens a
+//! The welcome page and the toolbar's menu open addresses in this page, each
+//! in a new history entry, so Back returns to the previous address or the
+//! welcome page. Opening an address opens a
 //! connection (HTTP with SSE over fetch, or a
 //! remote wasm app run by the browser); when it opens the page sends `hello`
 //! and from then on feeds every message to the [`Client`]. When the transport
@@ -137,6 +138,17 @@ impl Ctx {
             self.state.set(Some(State::Closed(None)));
             self.refresh();
         }
+    }
+
+    /// Closes the session and goes back to the welcome page.
+    fn leave(self) {
+        self.generation.update_value(|g| *g += 1);
+        self.client.update_value(Client::close);
+        self.conn.set_value(None);
+        self.url.set(None);
+        self.entry.set(None);
+        self.state.set(None);
+        self.refresh();
     }
 
     pub fn reload(self) {
@@ -353,19 +365,9 @@ fn open(url: &str) {
     }
 }
 
-/// Opens `addr` (or the welcome page) in this page, in a new browser tab.
-fn open_tab(addr: Option<&str>) {
-    let path = window().location().pathname().unwrap_or_default();
-    let url = match addr {
-        Some(a) => {
-            let Ok(params) = web_sys::UrlSearchParams::new_with_str("") else {
-                return;
-            };
-            params.append("url", a);
-            format!("{path}?{}", String::from(params.to_string()))
-        }
-        None => path,
-    };
+/// Opens the welcome page in a new browser tab.
+fn open_tab() {
+    let url = window().location().pathname().unwrap_or_default();
     if window().open_with_url_and_target(&url, "_blank").is_err() {
         warn!("could not open {url}");
     }
@@ -416,17 +418,34 @@ fn query_address() -> Option<String> {
     params.get("url").or_else(|| params.get("link"))
 }
 
-/// Puts the address in `?url=` so reloading the page reconnects.
-fn set_query_address(addr: &str) {
+/// Whether the current history entry is one the user picked, so its address
+/// is not a link.
+fn picked_entry() -> bool {
+    window()
+        .history()
+        .and_then(|h| h.state())
+        .is_ok_and(|s| s.is_truthy())
+}
+
+/// Puts the address in `?url=` so reloading the page reconnects: in a new
+/// history entry, marked as picked by the user, or in the current one.
+fn set_query_address(addr: &str, push: bool) {
     let Ok(params) = web_sys::UrlSearchParams::new_with_str("") else {
         return;
     };
     params.append("url", addr);
     let path = window().location().pathname().unwrap_or_default();
     let new = format!("{path}?{}", String::from(params.to_string()));
-    if let Ok(h) = window().history() {
-        let _ = h.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&new));
-    }
+    let Ok(h) = window().history() else {
+        return;
+    };
+    let _ = match push {
+        true => h.push_state_with_url(&wasm_bindgen::JsValue::TRUE, "", Some(&new)),
+        false => {
+            let state = h.state().unwrap_or(wasm_bindgen::JsValue::NULL);
+            h.replace_state_with_url(&state, "", Some(&new))
+        }
+    };
 }
 
 #[component]
@@ -437,21 +456,47 @@ pub fn Browser() -> impl IntoView {
     // Addresses in the page's own URL may come from any other page, so they
     // are links; addresses the user types or picks are not.
     let go = move |input: String, link: bool| match ctx.navigate(&input, link) {
-        Ok(()) => error.set(None),
-        Err(e) => error.set(Some(e)),
+        Ok(()) => {
+            error.set(None);
+            true
+        }
+        Err(e) => {
+            error.set(Some(e));
+            false
+        }
     };
     // The address of the page, also when its app moves it.
     Effect::new(move |_| {
         if let Some(addr) = ctx.url.with(|u| u.as_ref().map(address::hyperb)) {
-            set_query_address(&addr);
+            set_query_address(&addr, false);
             address.set(addr);
         }
     });
     if let Some(a) = query_address() {
-        go(a, true);
+        go(a, !picked_entry());
     }
-    let open = Callback::new(move |a: String| go(a, false));
     let menu = RwSignal::new(false);
+    // What the user picks gets a new history entry, so Back returns to
+    // where they were.
+    let open = Callback::new(move |a: String| {
+        menu.set(false);
+        if go(a, false)
+            && let Some(u) = ctx.url.get_untracked()
+        {
+            set_query_address(&address::hyperb(&u), true);
+        }
+    });
+    // Back and Forward: the welcome page, or the address of the entry.
+    window_event_listener(ev::popstate, move |_| match query_address() {
+        None => {
+            ctx.leave();
+            error.set(None);
+        }
+        Some(a) if ctx.url.get_untracked().is_some() && a == address.get_untracked() => {}
+        Some(a) => {
+            go(a, !picked_entry());
+        }
+    });
     let settings = RwSignal::new(false);
     window_event_listener(ev::keydown, move |e| {
         if e.key() == "Escape" {
@@ -563,7 +608,7 @@ pub fn Browser() -> impl IntoView {
                     class="hb-icon-button"
                     title="New tab"
                     aria-label="New tab"
-                    on:click=move |_| open_tab(None)
+                    on:click=move |_| open_tab()
                 >
                     "+"
                 </button>
@@ -603,15 +648,7 @@ pub fn Browser() -> impl IntoView {
             </Show>
             <Show when=move || menu.get()>
                 <div class="hb-menu">
-                    // The page keeps its address: others open in new tabs.
-                    <LibraryView
-                        ctx
-                        limit=50
-                        open=Callback::new(move |a: String| {
-                            menu.set(false);
-                            open_tab(Some(&a));
-                        })
-                    />
+                    <LibraryView ctx limit=50 open/>
                 </div>
             </Show>
             <div class="hb-progress" class:he-hidden=move || state() != Some(State::Connecting)></div>
