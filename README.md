@@ -47,9 +47,58 @@ $u=((irm https://api.github.com/repos/hypereffect/hyperb/releases/latest).assets
 <details>
 <summary>Linux</summary>
 
-Builds from source (see [Building from source](#building-from-source) for the dependencies). This installs the desktop app for your user, with its icon, and makes it the handler of `hyperb://` and `web+hyperb://` links:
+**Flatpak** (any distro), `.flatpak`, installs it for your user:
+```
+curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*linux-x86_64[^"]*\.flatpak')" -o /tmp/hyperb.flatpak && flatpak install --user -y /tmp/hyperb.flatpak
+```
+
+**Debian / Ubuntu** (Debian 13+, Ubuntu 24.04+), `.deb`:
+```
+curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*linux-amd64[^"]*\.deb')" -o /tmp/hyperb.deb && sudo apt install /tmp/hyperb.deb
+```
+
+**Fedora and other RPM distros**, `.rpm` (needs GTK 4.12+):
+```
+curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*linux-x86_64[^"]*\.rpm')" -o /tmp/hyperb.rpm && sudo dnf install /tmp/hyperb.rpm
+```
+
+**AppImage**, saves it to `~/.local/bin` and runs it:
+```
+mkdir -p ~/.local/bin && curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*linux-x86_64[^"]*\.AppImage')" -o ~/.local/bin/hyperb.AppImage && chmod +x ~/.local/bin/hyperb.AppImage && ~/.local/bin/hyperb.AppImage
+```
+It needs FUSE (otherwise run it with `--appimage-extract-and-run`).
+
+**Plain binary** (`.tar.gz`), for when you already have GTK 4.12+ installed:
+```
+mkdir -p ~/.local/bin && curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*linux-x86_64[^"]*\.tar\.gz')" | tar -xz -C ~/.local/bin hyperb-desktop && ~/.local/bin/hyperb-desktop
+```
+
+**From source** (see [Building from source](#building-from-source) for the dependencies). This installs the desktop app for your user, with its icon, and makes it the handler of `hyperb://` and `web+hyperb://` links:
 ```
 git clone https://github.com/hypereffect/hyperb && cd hyperb && just desktop-install
+```
+</details>
+
+<details>
+<summary>macOS</summary>
+
+Apple Silicon only, and the app is unsigned.
+
+**Homebrew**, installs from the [tap](https://github.com/andunieee/homebrew-hyperb) and clears the quarantine flag for you:
+```
+brew install --cask andunieee/hyperb/hyperb
+```
+
+**Manually**: download the `macos-arm64` `.zip`, double-click it in Finder to unzip, and drag `hyperb.app` to `Applications`. On first launch right-click it and choose Open.
+
+**One-liner** (Terminal), downloads and unzips it into `/Applications`. `ditto` is the archive tool that comes with macOS, and it keeps the app bundle intact where a plain `unzip` can break it:
+```
+curl -fL "$(curl -s https://api.github.com/repos/hypereffect/hyperb/releases/latest | grep -o 'https://[^"]*macos-arm64[^"]*\.zip')" -o /tmp/hyperb.zip && ditto -x -k /tmp/hyperb.zip /Applications
+```
+
+If macOS refuses to open it because it is from an unidentified developer, run:
+```
+xattr -d com.apple.quarantine /Applications/hyperb.app
 ```
 </details>
 
@@ -70,7 +119,7 @@ Nothing to install: open <https://hypereffect.github.io/hyperb/>.
 
 ## Releases
 Each component is released separately by pushing a tag named `<component>-<N>-<M>` (for example `android-6-1`), which publishes a GitHub release with:
-* `desktop-*`: a `.zip` and a `-setup-` installer for Windows
+* `desktop-*`: a `.flatpak`, `.deb`, `.rpm`, `.AppImage` and `.tar.gz` for Linux, a `.zip` and a `-setup-` installer for Windows, and a `.zip` with `hyperb.app` for Apple Silicon macOS. It also updates the Homebrew cask.
 * `android-*`: the APK
 * `tui-*`: the terminal app for Linux, macOS and Windows
 * `core-*`: publishes `hyperb-core` to [crates.io](https://crates.io/crates/hyperb-core); `core-<N>-<M>` becomes crate version `0.<N>.<M>`

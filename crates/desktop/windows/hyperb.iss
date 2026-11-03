@@ -1,4 +1,4 @@
-; Built by the windows workflow: iscc /DVersion=0.1.0 /DBundle=<bundle dir> /DOutput=<dir> hyperb.iss
+; Built by the desktop workflow: iscc /DVersion=1.2 /DBundle=<bundle dir> /DOutput=<dir> hyperb.iss
 [Setup]
 AppId={{6B0C3F5E-2B7A-4F0D-9C1E-5D7A1E4B8A21}
 AppName=hyperb
@@ -11,7 +11,7 @@ PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#Output}
-OutputBaseFilename=hyperb-windows-x64-setup-v{#Version}
+OutputBaseFilename=hyperb-desktop-windows-x64-setup-v{#Version}
 SetupIconFile=hyperb.ico
 UninstallDisplayIcon={app}\bin\hyperb-desktop.exe
 Compression=lzma2

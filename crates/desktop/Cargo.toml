@@ -2,6 +2,7 @@
 name = "hyperb-desktop"
 version.workspace = true
 edition.workspace = true
+description = "A browser for hypereffect apps"
 
 [[bin]]
 name = "hyperb-desktop"
@@ -18,3 +19,28 @@ url = "2"
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"
+
+[package.metadata.deb]
+name = "hyperb"
+maintainer = "andunie <andunie@cassis.cash>"
+section = "web"
+priority = "optional"
+depends = "$auto"
+extended-description = "A browser for hypereffect apps, opening hyperb:// addresses served over HTTP, iroh or as wasm modules."
+assets = [
+    ["target/release/hyperb-desktop", "usr/bin/", "755"],
+    ["com.hyperb.app.desktop", "usr/share/applications/", "644"],
+    ["icons/hicolor/scalable/apps/com.hyperb.app.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "hyperb"
+summary = "A browser for hypereffect apps"
+assets = [
+    { source = "target/release/hyperb-desktop", dest = "/usr/bin/hyperb-desktop", mode = "755" },
+    { source = "crates/desktop/com.hyperb.app.desktop", dest = "/usr/share/applications/com.hyperb.app.desktop", mode = "644" },
+    { source = "assets/icon.svg", dest = "/usr/share/icons/hicolor/scalable/apps/com.hyperb.app.svg", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+gtk4 = ">= 4.12"

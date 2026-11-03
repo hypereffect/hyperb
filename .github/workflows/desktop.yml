@@ -1,0 +1,483 @@
+name: Build desktop
+
+# Builds the GTK4 desktop app for Linux, Windows and macOS when a "desktop-*"
+# tag is pushed (for example desktop-1-2):
+#   linux   : x86_64 .tar.gz (plain binary), .deb, .rpm, .AppImage and .flatpak
+#   windows : x86_64 .zip (UCRT64 GTK4 runtime, launch via hyperb.bat) and a
+#             -setup- installer (Start menu entry, uninstaller, hyperb:// links)
+#   macos   : arm64  .zip (hyperb.app with bundled Homebrew libraries)
+# and updates the Homebrew cask in andunieee/homebrew-hyperb.
+#
+# GTK4 cannot be linked statically upstream, so every bundle simply ships all
+# runtime libraries next to the binary.
+
+on:
+  push:
+    tags: ["desktop-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: linux (x86_64)
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1" # let linuxdeploy run without FUSE
+      DEPLOY_GTK_VERSION: "4" # gtk plugin: bundle GTK4, not GTK3
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl wget file xz-utils patchelf desktop-file-utils \
+            build-essential cmake pkg-config dpkg-dev \
+            libgtk-4-dev librsvg2-dev librsvg2-bin libssl-dev
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+
+      - name: Build
+        run: cargo build --release --locked -p hyperb-desktop
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            # desktop-1-2 -> 1.2
+            VERSION="$(echo "${GITHUB_REF_NAME#desktop-}" | tr - .)"
+          else
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+          strip target/release/hyperb-desktop
+          mkdir -p dist
+
+          tar -czf "dist/hyperb-desktop-linux-x86_64-v${VERSION}.tar.gz" \
+            -C target/release hyperb-desktop
+
+          cargo deb --no-build -p hyperb-desktop --deb-version "${VERSION}" \
+            --output "dist/hyperb-desktop-linux-amd64-v${VERSION}.deb"
+
+          cargo generate-rpm -p crates/desktop \
+            -o "dist/hyperb-desktop-linux-x86_64-v${VERSION}.rpm" \
+            -s "version = \"${VERSION}\""
+
+          # linuxdeploy copies the binary plus all (transitively) linked
+          # shared libraries into AppDir/usr/lib and rewrites their RUNPATHs;
+          # the gtk plugin adds themes, glib schemas, pixbuf loaders, IMs etc.
+          mkdir -p AppDir/usr/bin \
+            AppDir/usr/share/applications \
+            AppDir/usr/share/icons/hicolor/256x256/apps
+          install -m0755 target/release/hyperb-desktop AppDir/usr/bin/hyperb-desktop
+          install -m0644 crates/desktop/com.hyperb.app.desktop AppDir/usr/share/applications/
+          rsvg-convert -w 256 -h 256 assets/icon.svg \
+            -o AppDir/usr/share/icons/hicolor/256x256/apps/com.hyperb.app.png
+
+          wget -qc https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -qc https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          wget -qc https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh appimagetool-x86_64.AppImage
+
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            -e AppDir/usr/bin/hyperb-desktop \
+            -d AppDir/usr/share/applications/com.hyperb.app.desktop \
+            -i AppDir/usr/share/icons/hicolor/256x256/apps/com.hyperb.app.png \
+            --plugin gtk \
+            --exclude-library 'libEGL.so*' \
+            --exclude-library 'libGL.so*'
+
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir \
+            "dist/hyperb-desktop-linux-x86_64-v${VERSION}.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  flatpak-sources:
+    name: flatpak (cargo sources)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the offline cargo sources
+        run: |
+          pip install aiohttp tomlkit
+          curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+          python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-sources
+          path: packaging/flatpak/cargo-sources.json
+
+  flatpak:
+    name: flatpak (x86_64)
+    needs: flatpak-sources
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-sources
+          path: packaging/flatpak
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: hyperb-desktop-linux-x86_64-${{ github.ref_name }}.flatpak
+          manifest-path: packaging/flatpak/com.hyperb.app.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          arch: x86_64
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: hyperb-desktop-linux-x86_64-${{ github.ref_name }}.flatpak
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hyperb-desktop-linux-x86_64-${{ github.ref_name }}.flatpak
+
+  macos:
+    name: macos (arm64)
+    # Apple Silicon only: Intel runners and Homebrew Intel bottles were
+    # retired/disabled in 2026, and x86_64 runners end in 2027 anyway.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          brew update
+          brew install gtk4 librsvg
+
+      - name: Build
+        run: |
+          # rustc doesn't search Homebrew's prefix.
+          export LIBRARY_PATH="$(brew --prefix)/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          cargo build --release --locked -p hyperb-desktop
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            # desktop-1-2 -> 1.2
+            VERSION="$(echo "${GITHUB_REF_NAME#desktop-}" | tr - .)"
+          else
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+
+          APP="hyperb.app"
+          MACOS_DIR="$APP/Contents/MacOS"
+          RES_DIR="$APP/Contents/Resources"
+          LIBDIR="$MACOS_DIR/lib"
+          mkdir -p "$LIBDIR" "$RES_DIR/share" "$RES_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders"
+
+          cp target/release/hyperb-desktop "$MACOS_DIR/hyperb-desktop-bin"
+
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleIdentifier</key><string>com.hyperb.app</string>
+            <key>CFBundleName</key><string>hyperb</string>
+            <key>CFBundleExecutable</key><string>hyperb-desktop</string>
+            <key>CFBundleIconFile</key><string>hyperb</string>
+            <key>LSMinimumSystemVersion</key><string>15.0</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+
+          # Finder strips DYLD_* env vars, so all libraries are resolved with
+          # @executable_path rpaths baked into the binary and every dylib.
+          BREW="$(brew --prefix)"
+
+          # 1. copy every Homebrew dylib, recursively via otool.
+          collect() {
+            local abs name dst
+            abs="$1"
+            case "$abs" in
+              /usr/lib/*|/System/*|@*) return ;;
+            esac
+            name="$(basename "$abs")"
+            dst="$LIBDIR/$name"
+            [ -e "$dst" ] && return 0
+            cp "$abs" "$dst"
+            chmod u+w "$dst"
+            while read -r dep; do
+              collect "$dep"
+            done < <(otool -L "$abs" | awk 'NR>1{print $1}' | sed "s|^@rpath|$BREW/lib|")
+          }
+          otool -L "$MACOS_DIR/hyperb-desktop-bin" | awk 'NR>1{print $1}' | sed "s|^@rpath|$BREW/lib|" | while read -r dep; do
+            collect "$dep"
+          done
+
+          # gdk-pixbuf loaders (PNG/SVG icons...) are dlopen()ed, so they are not in otool's
+          # output: copy them with their dependencies and keep them next to the other libraries.
+          PIXBUF="$RES_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders"
+          cp "$BREW"/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.so "$PIXBUF/"
+          chmod u+w "$PIXBUF"/*.so
+          for loader in "$PIXBUF"/*.so; do
+            while read -r dep; do
+              collect "$dep"
+            done < <(otool -L "$loader" | awk 'NR>1{print $1}' | sed "s|^@rpath|$BREW/lib|")
+          done
+
+          # 2. rewrite every reference to point into the bundle.
+          rewrite() {
+            while read -r dep; do
+              case "$dep" in
+                /usr/lib/*|/System/*|@executable_path/*) continue ;;
+              esac
+              install_name_tool -change "$dep" "@executable_path/lib/$(basename "$dep")" "$1"
+            done < <(otool -L "$1" | awk 'NR>1{print $1}')
+          }
+          rewrite "$MACOS_DIR/hyperb-desktop-bin"
+          for lib in "$LIBDIR"/* "$PIXBUF"/*.so; do
+            install_name_tool -id "@executable_path/lib/$(basename "$lib")" "$lib" 2>/dev/null || true
+            rewrite "$lib"
+          done
+
+          # 3. Data GTK looks up at runtime: compiled glib schemas and the icon themes.
+          mkdir -p "$RES_DIR/share/glib-2.0/schemas" "$RES_DIR/share/icons"
+          cp "$BREW"/share/glib-2.0/schemas/*.xml "$RES_DIR/share/glib-2.0/schemas/"
+          glib-compile-schemas "$RES_DIR/share/glib-2.0/schemas"
+          for theme in Adwaita hicolor; do
+            [ -d "$BREW/share/icons/$theme" ] && cp -R "$BREW/share/icons/$theme" "$RES_DIR/share/icons/"
+          done
+          mkdir -p "$RES_DIR/share/icons/hicolor/scalable/apps"
+          cp assets/icon.svg "$RES_DIR/share/icons/hicolor/scalable/apps/com.hyperb.app.svg"
+
+          # The loaders cache lists absolute paths, so it is written on each launch.
+          # It is queried from Homebrew's own loaders: the bundled copies point at
+          # @executable_path/lib, which gdk-pixbuf-query-loaders can't dlopen.
+          BREW_PIXBUF="$BREW/lib/gdk-pixbuf-2.0/2.10.0/loaders"
+          GDK_PIXBUF_MODULEDIR="$BREW_PIXBUF" "$BREW/bin/gdk-pixbuf-query-loaders" "$BREW_PIXBUF"/*.so \
+            | sed "s|$BREW_PIXBUF|@RES@/lib/gdk-pixbuf-2.0/2.10.0/loaders|" > "$RES_DIR/loaders.cache.in"
+          grep -q '@RES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so' "$RES_DIR/loaders.cache.in" \
+            || { echo "the pixbuf loaders cache has no SVG loader"; cat "$RES_DIR/loaders.cache.in"; exit 1; }
+
+          # 4. App icon.
+          ICONSET="$(mktemp -d)/hyperb.iconset"
+          mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            rsvg-convert -w "$size" -h "$size" assets/icon.svg -o "$ICONSET/icon_${size}x${size}.png"
+            rsvg-convert -w "$((size * 2))" -h "$((size * 2))" assets/icon.svg -o "$ICONSET/icon_${size}x${size}@2x.png"
+          done
+          iconutil -c icns "$ICONSET" -o "$RES_DIR/hyperb.icns"
+
+          cat > "$MACOS_DIR/hyperb-desktop" <<'EOF'
+          #!/bin/bash
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          RES="$(cd "$HERE/../Resources" && pwd)"
+          CACHE="${TMPDIR:-/tmp}/hyperb-pixbuf-$(id -u).cache"
+          sed "s|@RES@|$RES|g" "$RES/loaders.cache.in" > "$CACHE"
+          export GDK_PIXBUF_MODULE_FILE="$CACHE"
+          export XDG_DATA_DIRS="$RES/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+          export GSETTINGS_SCHEMA_DIR="$RES/share/glib-2.0/schemas"
+          exec "$HERE/hyperb-desktop-bin" "$@"
+          EOF
+          chmod +x "$MACOS_DIR/hyperb-desktop"
+
+          # install_name_tool invalidated every ad-hoc signature; on Apple
+          # Silicon unsigned/modded binaries get killed on load, so re-sign
+          # everything ad-hoc (`-` = no Apple Developer identity needed).
+          find "$APP" -name '*.dylib' | while read -r f; do codesign --force --sign - "$f"; done
+          codesign --force --sign - "$MACOS_DIR/hyperb-desktop-bin"
+
+          mkdir -p dist
+          ditto -c -k --keepParent "$APP" "dist/hyperb-desktop-macos-arm64-v${VERSION}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  # Rewrites the cask in the andunieee/homebrew-hyperb tap. Needs a TAP_SSH_KEY
+  # secret: the private half of a deploy key with write access to that repo.
+  homebrew:
+    needs: [macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: andunieee/homebrew-hyperb
+          ssh-key: ${{ secrets.TAP_SSH_KEY }}
+
+      - name: Update the cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#desktop-}"
+          VERSION="${VERSION//-/.}"
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern "hyperb-desktop-macos-arm64-*.zip" --dir zip
+          SHA=$(sha256sum zip/*.zip | cut -d' ' -f1)
+          mkdir -p Casks
+          cat > Casks/hyperb.rb <<RUBY
+          cask "hyperb" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/hypereffect/hyperb/releases/download/${TAG}/hyperb-desktop-macos-arm64-v#{version}.zip"
+            name "hyperb"
+            desc "A browser for hypereffect apps"
+            homepage "https://github.com/hypereffect/hyperb"
+
+            depends_on arch: :arm64
+
+            app "hyperb.app"
+
+            # the app is unsigned, so clear the quarantine flag instead of making users do it
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{appdir}/hyperb.app"]
+            end
+
+            zap trash: [
+              "~/.config/hyperb",
+              "~/.local/share/hyperb",
+              "~/Library/Caches/hyperb",
+            ]
+          end
+          RUBY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/hyperb.rb
+          git commit -m "hyperb ${VERSION}" || exit 0
+          git push
+
+  windows:
+    name: windows (x86_64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          release: false
+          install: >-
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-ntldd
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH="/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          cargo build --release --locked -p hyperb-desktop
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            # desktop-1-2 -> 1.2
+            VERSION="$(echo "${GITHUB_REF_NAME#desktop-}" | tr - .)"
+          else
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+
+          # Bundle layout mirrors an msys2 install prefix; on Windows glib
+          # resolves glib/gtk resource dirs *relative to the DLL location*,
+          # so putting DLLs in bundle/bin and resources under bundle/share
+          # and bundle/lib makes the tree relocatable without env tricks.
+          mkdir -p bundle/bin \
+            bundle/share/glib-2.0/schemas \
+            bundle/share/icons \
+            bundle/lib/gdk-pixbuf-2.0/2.10.0/loaders
+
+          cp target/release/hyperb-desktop.exe bundle/bin/
+
+          cp /ucrt64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll bundle/lib/gdk-pixbuf-2.0/2.10.0/loaders/
+
+          # Copy every dependency DLL (recursively via ntldd) of the binary and
+          # of the dlopen()ed pixbuf loaders, skipping the Windows system ones
+          # that are already present on any machine. ntldd prints Windows paths
+          # ("D:\a\_temp\msys64\ucrt64\bin\foo.dll", runner root varies), so the
+          # backslashes are turned into slashes before matching.
+          ntldd -R bundle/bin/hyperb-desktop.exe bundle/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+            | tr -s '[:space:]' '\n' | tr '\\' '/' | while read -r tok; do
+            case "$tok" in
+              /ucrt64/*|?:/*)
+                unix="$(cygpath -u "$tok")"
+                case "$unix" in
+                  */ucrt64/bin/*.dll)
+                    [ -e "bundle/bin/$(basename "$unix")" ] || cp "$unix" bundle/bin/ ;;
+                esac ;;
+            esac
+          done
+
+          # Fail here rather than ship a bundle that can't start.
+          for dll in libgtk-4-1.dll libcairo-2.dll libcairo-gobject-2.dll \
+            libgdk_pixbuf-2.0-0.dll libglib-2.0-0.dll; do
+            [ -e "bundle/bin/$dll" ] || { echo "missing $dll in the bundle"; exit 1; }
+          done
+
+          # glib schemas (compiled), icon theme, pixbuf loaders cache.
+          cp /ucrt64/share/glib-2.0/schemas/gschemas.compiled bundle/share/glib-2.0/schemas/
+          cp -r /ucrt64/share/icons/hicolor bundle/share/icons/
+          # The app icon by name (window icon).
+          mkdir -p bundle/share/icons/hicolor/scalable/apps
+          cp assets/icon.svg bundle/share/icons/hicolor/scalable/apps/com.hyperb.app.svg
+          (cd bundle && gdk-pixbuf-query-loaders lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+            > lib/gdk-pixbuf-2.0/2.10.0/loaders.cache)
+
+          # CRLF batch wrapper for the portable zip (LF breaks cmd.exe).
+          printf '@echo off\r\nset GDK_PIXBUF_MODULE_FILE=%%~dp0lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache\r\nstart "" "%%~dp0bin\\hyperb-desktop.exe" %%*\r\n' > bundle/hyperb.bat
+
+          mkdir -p dist
+          # Inno Setup comes with the runner image.
+          # MSYS would rewrite the /D switches as POSIX paths, so skip its argument conversion.
+          MSYS2_ARG_CONV_EXCL='*' "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "/DVersion=${VERSION}" "/DBundle=$(cygpath -w "$PWD/bundle")" "/DOutput=$(cygpath -w "$PWD/dist")" \
+            "$(cygpath -w "$PWD/crates/desktop/windows/hyperb.iss")"
+          powershell -NoProfile -Command "Compress-Archive -Force -Path bundle/* -DestinationPath 'dist/hyperb-desktop-windows-x64-v${VERSION}.zip'"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
