@@ -39,7 +39,7 @@ pub fn create(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
         description: t.description().unwrap_or_else(|| entry.address.clone()),
         icon: icon(texture.as_ref()),
         address: entry.address,
-        title: entry.title,
+        title: app_name(&entry.title),
     };
     let window = window.clone();
     glib::spawn_future_local(async move {
@@ -56,6 +56,11 @@ pub fn create(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
         };
         dialog.show(Some(&window));
     });
+}
+
+/// The name an app goes by on its own: its title, marked as a hyperb app.
+pub fn app_name(title: &str) -> String {
+    format!("{} (hyperb)", title.trim())
 }
 
 /// `texture`, or hyperb's icon, as a PNG of `ICON_SIZE` pixels square.

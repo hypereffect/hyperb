@@ -67,9 +67,6 @@ pub struct Tab {
     changed: RefCell<Option<Box<dyn Fn()>>>,
     /// Called with the addresses to open in another tab.
     open_app: RefCell<Box<OpenApp>>,
-    /// Shows only the app, without the toolbar and the debugger
-    /// ([`crate::standalone`]).
-    standalone: bool,
 }
 
 /// What a tab calls with an address to open in another tab, and whether it
@@ -157,6 +154,16 @@ impl Tab {
             toolbar.append(&library_button);
             // A new tab has nothing to reload or star.
             toolbar.set_visible(false);
+            // An app on its own shows only where it comes from, read-only.
+            if standalone {
+                for w in [
+                    reload.upcast_ref::<gtk::Widget>(),
+                    star.upcast_ref(),
+                    library_button.upcast_ref(),
+                ] {
+                    w.set_visible(false);
+                }
+            }
 
             // Favorites and history, in the popover and on the welcome page:
             // the tab opens its address there, or a new tab if it has one.
@@ -323,7 +330,6 @@ impl Tab {
                 library,
                 changed: RefCell::new(None),
                 open_app: RefCell::new(Box::new(|_, _| {})),
-                standalone,
             }
         })
     }
@@ -436,7 +442,7 @@ impl Tab {
         self.title.set_tooltip_text(Some(&addr));
         self.address_label.set_text(&addr);
         self.address_label.set_tooltip_text(Some(&addr));
-        self.toolbar.set_visible(!self.standalone);
+        self.toolbar.set_visible(true);
         self.show_entry(&entry);
         self.session.borrow_mut().entry = Some(entry);
     }
