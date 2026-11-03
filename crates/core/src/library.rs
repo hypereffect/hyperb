@@ -108,6 +108,11 @@ pub const DEMOS: &[Demo] = &[
         "Smart home",
         "A simulated house",
     ),
+    demo(
+        "hyperb://hypereffect.github.io/hyperb/apps/worldclock.wasm",
+        "World clock",
+        "Clocks across time zones",
+    ),
 ];
 
 /// Whether `url` is one of the [`DEMOS`], with any parameters.

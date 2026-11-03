@@ -39,6 +39,7 @@ select_app! {
     "saas" => crate::saas::Saas,
     "smarthome" => crate::smarthome::SmartHome,
     "textstats" => crate::textstats::TextStats,
+    "worldclock" => crate::worldclock::WorldClock,
 }
 
 use hypereffect::server::Server;

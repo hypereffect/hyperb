@@ -23,6 +23,7 @@ The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereff
 * [`minecraft`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/minecraft.wasm): a fake Minecraft server's admin console
 * [`saas`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/saas.wasm): a fake product's admin panel
 * [`smarthome`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/smarthome.wasm): a simulated house
+* [`worldclock`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/worldclock.wasm): live clocks across time zones, and a time converter
 
 # Installation
 Grab the files from the [latest release](https://github.com/hypereffect/hyperb/releases/latest), or use the commands below, which all download the latest one.

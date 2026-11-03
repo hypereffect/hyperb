@@ -31,7 +31,7 @@ desktop-install:
 tui *args:
     cargo run -p hyperb-tui -- {{args}}
 
-wasm_apps := "billsplit chart dbclient finance grammar minecraft pomodoro qr restaurant saas smarthome textstats"
+wasm_apps := "billsplit chart dbclient finance grammar minecraft pomodoro qr restaurant saas smarthome textstats worldclock"
 
 # Build the demo apps as wasm modules into wasm-apps/
 wasm-apps:
