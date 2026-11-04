@@ -583,7 +583,12 @@ impl Tab {
         self.lead.set_visible_child_name(name);
     }
 
-    fn set_favorite(&self, on: bool) {
+    pub fn is_favorite(&self) -> bool {
+        let url = self.session.borrow().url.clone();
+        url.as_ref().is_some_and(|u| self.library.is_favorite(u))
+    }
+
+    pub fn set_favorite(&self, on: bool) {
         let url = self.session.borrow().url.clone();
         if let Some(url) = url
             && self.library.is_favorite(&url) != on

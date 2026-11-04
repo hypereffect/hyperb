@@ -11,8 +11,9 @@
 //! per user: launching it again opens a new tab in the running window.
 //!
 //! Addresses open as apps of their own, in a window without tabs or
-//! debugger ([`standalone`]); right-clicking a tab of the browser makes a
-//! desktop shortcut that opens its app that way ([`shortcut`]). The system
+//! debugger ([`standalone`]); right-clicking a tab of the browser adds its
+//! app to the favorites or makes a desktop shortcut that opens it that way
+//! ([`shortcut`]). The system
 //! opens `hyperb://` and `web+hyperb://` links with `--links` (see
 //! `com.hyperb.app.desktop`), which refuses local files.
 
@@ -409,7 +410,8 @@ impl Browser {
         t
     }
 
-    /// The menu of a tab, on right-click: a desktop shortcut to its app.
+    /// The menu of a tab, on right-click: its favorite and a desktop
+    /// shortcut to its app.
     fn tab_menu(self: &Rc<Self>, t: &Rc<Tab>) {
         let create = gio::SimpleAction::new("shortcut", None);
         {
@@ -421,18 +423,36 @@ impl Browser {
                 }
             });
         }
+        let favorite = gio::SimpleAction::new("favorite", None);
+        {
+            let tw = Rc::downgrade(t);
+            favorite.connect_activate(move |_, _| {
+                if let Some(t) = tw.upgrade() {
+                    t.set_favorite(!t.is_favorite());
+                }
+            });
+        }
         let actions = gio::SimpleActionGroup::new();
         actions.add_action(&create);
+        actions.add_action(&favorite);
         t.tab_label.insert_action_group("tab", Some(&actions));
-        let menu = gio::Menu::new();
-        menu.append(Some("Create desktop shortcut"), Some("tab.shortcut"));
         let click = gtk::GestureClick::new();
         click.set_button(gdk::BUTTON_SECONDARY);
         let tw = Rc::downgrade(t);
         click.connect_pressed(move |_, _, x, y| {
             let Some(t) = tw.upgrade() else { return };
-            // Only a tab with an app has something to make a shortcut to.
-            create.set_enabled(t.has_address());
+            // Only a tab with an app can be a favorite or have a shortcut.
+            let has_address = t.has_address();
+            create.set_enabled(has_address);
+            favorite.set_enabled(has_address);
+            let menu = gio::Menu::new();
+            let label = if t.is_favorite() {
+                "Remove from favorites"
+            } else {
+                "Add to favorites"
+            };
+            menu.append(Some(label), Some("tab.favorite"));
+            menu.append(Some("Create desktop shortcut"), Some("tab.shortcut"));
             let popover = gtk::PopoverMenu::from_model(Some(&menu));
             popover.set_parent(&t.tab_label);
             popover.set_has_arrow(false);
