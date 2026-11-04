@@ -657,7 +657,7 @@ impl App for Finance {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Capital Twelve — Financial Calculator"),
+                .text("Financial Calculator"),
         );
         out.element(
             ui::text("help")

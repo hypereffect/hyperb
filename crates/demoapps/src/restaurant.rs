@@ -45,7 +45,7 @@ impl App for Restaurant {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Le Palmier — Table Reservations"),
+                .text("Restaurant Reservations"),
         );
         out.element(
             ui::card("booking")

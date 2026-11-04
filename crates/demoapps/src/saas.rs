@@ -1,4 +1,4 @@
-//! The SaaS admin panel demo, for a fictional product ("Cumulus"). All the
+//! The SaaS admin panel demo, for a fictional product. All the
 //! data is made up.
 //!
 //! An admin sees revenue figures and charts, searches and filters the
@@ -351,7 +351,7 @@ impl App for Saas {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Cumulus — Admin"),
+                .text("Admin Panel"),
         );
         out.element(
             ui::text("who_line")

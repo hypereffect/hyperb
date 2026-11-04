@@ -176,7 +176,7 @@ impl App for Grammar {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Harpist — Grammar Checker"),
+                .text("Grammar Checker"),
         );
         out.element(
             ui::card("input")

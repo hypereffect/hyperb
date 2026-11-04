@@ -341,7 +341,7 @@ impl WorldClock {
     /// Keeps the home zone and the clocks, in the order drawn, in the address.
     fn remember(&self, out: &mut Outbox) {
         let clocks: Vec<&str> = self.clocks.iter().map(|&i| ZONES[i].id).collect();
-        let mut m = Metadata::new().name("World clock");
+        let mut m = Metadata::new().name("World Clock");
         m.extra.insert(
             "url".into(),
             format!("#home={}&clocks={}", ZONES[self.home].id, clocks.join(",")),
@@ -525,7 +525,7 @@ impl App for WorldClock {
         };
         self.clocks.dedup();
         self.conv_from = self.home;
-        out.metadata(Metadata::new().name("World clock"));
+        out.metadata(Metadata::new().name("World Clock"));
         out.signal(json!({
             "home": ZONES[self.home].id,
             "h12": false,
@@ -543,7 +543,7 @@ impl App for WorldClock {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Meridian — World Clock"),
+                .text("World Clock"),
         );
         out.element(ui::card("home_card").parent("main").gap("small"));
         out.element(

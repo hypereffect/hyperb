@@ -1583,7 +1583,7 @@ impl App for DbClient {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Tabula — SQL Client"),
+                .text("SQL Client"),
         );
         out.element(ui::text("conn").parent("main").variant("caption").text(
             "Connected to acme_demo (read-only, in memory). Try SHOW TABLES or DESCRIBE orders.",

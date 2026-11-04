@@ -60,7 +60,7 @@ impl App for Qr {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Quadrat — QR Codes"),
+                .text("QR Code Generator"),
         );
         out.element(
             ui::card("input")

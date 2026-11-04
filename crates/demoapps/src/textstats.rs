@@ -50,7 +50,7 @@ impl App for TextStats {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Wordlare — Text Stats"),
+                .text("Text Statistics"),
         );
         out.element(
             ui::card("paste")

@@ -297,7 +297,7 @@ impl App for Chart {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Plotline — Chart Maker"),
+                .text("Chart Maker"),
         );
         out.element(
             ui::card("input")

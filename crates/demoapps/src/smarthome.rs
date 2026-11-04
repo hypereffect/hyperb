@@ -642,7 +642,7 @@ impl App for SmartHome {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Hearth — Smart Home"),
+                .text("Smart Home"),
         );
         out.element(ui::row("summary").parent("main").gap("small").wrap(true));
         out.element(

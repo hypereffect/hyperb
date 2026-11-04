@@ -50,67 +50,67 @@ const fn demo(address: &'static str, title: &'static str, about: &'static str) -
 pub const DEMOS: &[Demo] = &[
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm",
-        "Restaurant",
+        "Restaurant Reservations",
         "Reserve a table",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/textstats.wasm",
-        "Text stats",
+        "Text Statistics",
         "Statistics of a text",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm",
-        "Pomodoro",
+        "Pomodoro Timer",
         "A focus timer",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/qr.wasm",
-        "QR",
+        "QR Code Generator",
         "QR codes",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/chart.wasm",
-        "Chart",
+        "Chart Maker",
         "Charts",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm",
-        "Bill split",
+        "Bill Splitter",
         "Split a bill",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/finance.wasm",
-        "Finance",
+        "Financial Calculator",
         "An RPN financial calculator",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm",
-        "Grammar",
+        "Grammar Checker",
         "A grammar checker, on Harper",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/dbclient.wasm",
-        "DB client",
+        "SQL Client",
         "A SQL client over fake tables",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/minecraft.wasm",
-        "Minecraft",
+        "Server Admin Console",
         "A fake Minecraft server's admin console",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/saas.wasm",
-        "SaaS",
+        "Admin Panel",
         "A fake product's admin panel",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/smarthome.wasm",
-        "Smart home",
+        "Smart Home",
         "A simulated house",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/worldclock.wasm",
-        "World clock",
+        "World Clock",
         "Clocks across time zones",
     ),
 ];

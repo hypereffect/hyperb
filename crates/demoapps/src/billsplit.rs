@@ -270,7 +270,7 @@ impl App for BillSplit {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Splitwise-ish — Split the Bill"),
+                .text("Bill Splitter"),
         );
         out.element(
             ui::card("bill")

@@ -609,7 +609,7 @@ impl App for Minecraft {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Blockhouse — Server Admin"),
+                .text("Server Admin Console"),
         );
         out.element(ui::row("header").parent("main").gap("medium").wrap(true));
         out.element(

@@ -129,7 +129,7 @@ impl App for Pomodoro {
             ui::text("title")
                 .parent("main")
                 .variant("h1")
-                .text("Tomato — Pomodoro Timer"),
+                .text("Pomodoro Timer"),
         );
         out.element(
             ui::notice("notice")
