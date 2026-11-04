@@ -179,7 +179,12 @@ open class MainActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(title, bitmap))
             }
-            HyperbTheme { BrowserScreen(browser, ::scan, standalone, ::openOnItsOwn, ::addToHomeScreen) }
+            HyperbTheme {
+                BrowserScreen(
+                    browser, ::scan, standalone, ::openOnItsOwn, ::addToHomeScreen,
+                    AppShortcut(::hasAppShortcut, ::toggleAppShortcut),
+                )
+            }
         }
     }
 
@@ -195,30 +200,56 @@ open class MainActivity : ComponentActivity() {
         browser.home()
     }
 
-    /**
-     * Asks the home screen to pin a shortcut that opens the app on its own, with its title,
-     * description and icon (or hyperb's).
-     */
+    /** Asks the home screen to pin a shortcut that opens the app on its own. */
     private fun addToHomeScreen(snap: Snapshot) {
         if (!ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
             Toast.makeText(this, "The home screen does not take shortcuts", Toast.LENGTH_SHORT).show()
             return
         }
+        shortcut(snap) { ShortcutManagerCompat.requestPinShortcut(this, it, null) }
+    }
+
+    /** Whether the app is among the shortcuts shown by touching and holding hyperb's icon. */
+    private fun hasAppShortcut(snap: Snapshot) =
+        ShortcutManagerCompat.getDynamicShortcuts(this).any { it.id == shortcutId(snap.address) }
+
+    /**
+     * Adds the app to the shortcuts shown by touching and holding hyperb's icon, first, or removes
+     * it. When there are too many, the last one goes.
+     */
+    private fun toggleAppShortcut(snap: Snapshot) {
+        if (hasAppShortcut(snap)) {
+            ShortcutManagerCompat.removeDynamicShortcuts(this, listOf(shortcutId(snap.address)))
+            return
+        }
+        shortcut(snap, rank = 0) {
+            ShortcutManagerCompat.pushDynamicShortcut(this, it)
+            Toast.makeText(this, "Touch and hold hyperb's icon to open ${snap.title}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * A shortcut that opens the app on its own, with its title, description and icon (or
+     * hyperb's), given to [then] on the main thread once the icon is loaded.
+     */
+    private fun shortcut(snap: Snapshot, rank: Int? = null, then: (ShortcutInfoCompat) -> Unit) {
         thread(name = "hyperb-shortcut") {
             val bitmap = snap.icon?.let(::loadIcon)
             runOnUiThread {
                 val icon = bitmap?.let { IconCompat.createWithBitmap(square(it)) }
                     ?: IconCompat.createWithResource(this, R.mipmap.ic_launcher)
-                val shortcut = ShortcutInfoCompat.Builder(this, "app:" + snap.address)
+                val builder = ShortcutInfoCompat.Builder(this, shortcutId(snap.address))
                     .setShortLabel(snap.title)
                     .setLongLabel(snap.description ?: snap.title)
                     .setIcon(icon)
                     .setIntent(appIntent(snap.address))
-                    .build()
-                ShortcutManagerCompat.requestPinShortcut(this, shortcut, null)
+                rank?.let(builder::setRank)
+                then(builder.build())
             }
         }
     }
+
+    private fun shortcutId(address: String) = "app:$address"
 
     /** Opens [address] on its own, in the window it has if there is one. */
     private fun appIntent(address: String) =
@@ -373,9 +404,12 @@ class Browser : Host {
     }
 }
 
+/** Whether an app is among the shortcuts of hyperb's icon, and adding or removing it. */
+class AppShortcut(val has: (Snapshot) -> Boolean, val toggle: (Snapshot) -> Unit)
+
 /**
  * The browser, or just the app if [standalone]. [onOwn] and [onPin] open the app on its own and
- * add it to the home screen.
+ * add it to the home screen; [shortcut] adds it to the shortcuts of hyperb's icon.
  */
 @Composable
 fun BrowserScreen(
@@ -384,11 +418,12 @@ fun BrowserScreen(
     standalone: Boolean,
     onOwn: (Snapshot) -> Unit,
     onPin: (Snapshot) -> Unit,
+    shortcut: AppShortcut,
 ) {
     BackHandler(enabled = !standalone && b.snapshot != null) { b.home() }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding()) {
-            if (!standalone) Toolbar(b, onScan, onOwn, onPin)
+            if (!standalone) Toolbar(b, onScan, onOwn, onPin, shortcut)
             val snap = b.snapshot
             if (snap?.state == "connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
             b.error?.let { Banner(it, null) }
@@ -404,7 +439,13 @@ fun BrowserScreen(
 }
 
 @Composable
-private fun Toolbar(b: Browser, onScan: () -> Unit, onOwn: (Snapshot) -> Unit, onPin: (Snapshot) -> Unit) {
+private fun Toolbar(
+    b: Browser,
+    onScan: () -> Unit,
+    onOwn: (Snapshot) -> Unit,
+    onPin: (Snapshot) -> Unit,
+    shortcut: AppShortcut,
+) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -457,6 +498,13 @@ private fun Toolbar(b: Browser, onScan: () -> Unit, onOwn: (Snapshot) -> Unit, o
                     text = { Text("Add to home screen") },
                     enabled = snap != null,
                     onClick = { menu = false; snap?.let(onPin) },
+                )
+                // Read each time the menu opens: other windows may have changed the shortcuts.
+                val hasShortcut = snap != null && shortcut.has(snap)
+                DropdownMenuItem(
+                    text = { Text(if (hasShortcut) "Remove from app shortcuts" else "Add to app shortcuts") },
+                    enabled = snap != null,
+                    onClick = { menu = false; snap?.let(shortcut.toggle) },
                 )
                 DropdownMenuItem(
                     text = { Text("Settings") },
