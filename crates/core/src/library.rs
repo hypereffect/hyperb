@@ -54,9 +54,9 @@ pub const DEMOS: &[Demo] = &[
         "Reserve a table",
     ),
     demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/textstats.wasm",
-        "Text Statistics",
-        "Statistics of a text",
+        "hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm",
+        "Text Utilities",
+        "A pocket knife of small tools for text, data, numbers and more",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm",

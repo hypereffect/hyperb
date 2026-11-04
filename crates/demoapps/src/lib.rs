@@ -15,7 +15,7 @@ pub mod qr;
 pub mod restaurant;
 pub mod saas;
 pub mod smarthome;
-pub mod textstats;
+pub mod textutils;
 pub mod worldclock;
 
 /// The wasm module ABI the renderer loads (`SPEC.md`, section 4). A wasm build

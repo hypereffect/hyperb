@@ -16,7 +16,7 @@ The [SPEC.md](SPEC.md) is a thin wrapper over [hypereffect](https://hypereffect.
 The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Open one of these addresses in any hyperb app, or follow a link to open it in the web app:
 
 * [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
-* [`textstats`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/textstats.wasm): statistics of a text
+* [`textutils`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm): a pocket knife of small tools for text, data, numbers and more
 * [`pomodoro`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm): a focus timer
 * [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): QR codes
 * [`chart`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/chart.wasm): charts

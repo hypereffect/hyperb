@@ -38,7 +38,7 @@ select_app! {
     "restaurant" => crate::restaurant::Restaurant,
     "saas" => crate::saas::Saas,
     "smarthome" => crate::smarthome::SmartHome,
-    "textstats" => crate::textstats::TextStats,
+    "textutils" => crate::textutils::TextUtils,
     "worldclock" => crate::worldclock::WorldClock,
 }
 
