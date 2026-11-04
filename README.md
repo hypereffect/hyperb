@@ -4,9 +4,13 @@
 
 <h1 align="center">hyperb</h1>
 
-A browser for [hypereffect](https://crates.io/crates/hypereffect) apps. It opens `hyperb://` addresses served over HTTP, iroh or as wasm modules, see [SPEC.md](SPEC.md) for the protocol.
+**hyperb** is a browser for small server-side applications. It opens `hyperb://` address that can be served via HTTP or iroh, or can be local or HTTP paths to WASM modules.
 
 It comes as a GTK4 desktop app, a terminal app, an Android app and a [web app](https://hypereffect.github.io/hyperb/).
+
+Applications are servers that send `metadata`, `element` or `signal` messages, modifying the basic layout and the local state of components that are rendered by the **hyperb** browser. In the case of WASM modules, the role of server is assumed by the sandboxed WASM program that is being run locally.
+
+The [SPEC.md](SPEC.md) is a thin wrapper over [hypereffect](https://hypereffect.dev), which means there is no client-side computation and the style is homogenous and defined by the browser, the server merely provides the basic layout skeleton and the basic functionality of the elements, while the client's only means of communication with the server is by sending `action` messages.
 
 # Demo apps
 The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Open one of these addresses in any hyperb app, or follow a link to open it in the web app:
