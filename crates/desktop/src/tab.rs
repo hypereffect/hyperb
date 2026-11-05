@@ -19,6 +19,7 @@ use crate::clamp::Clamp;
 use crate::debug::{Debugger, Dir};
 use crate::library::{self, Library};
 use crate::render::Renderer;
+use crate::shortcut;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib, pango};
 use gtk4 as gtk;
@@ -138,6 +139,41 @@ impl Tab {
             address_label.set_xalign(0.0);
             address_label.set_selectable(true);
             address_label.set_ellipsize(pango::EllipsizeMode::Middle);
+            // Right-clicking the address offers a desktop shortcut to the
+            // app, or removes the one there is.
+            {
+                let create_weak = weak.clone();
+                let create = gio::SimpleAction::new("shortcut", None);
+                create.connect_activate(move |_, _| {
+                    if let Some(t) = create_weak.upgrade()
+                        && let Some(w) = t.page.root().and_downcast::<gtk::Window>()
+                    {
+                        shortcut::create(&w, &t.library, &t);
+                    }
+                });
+                let remove_weak = weak.clone();
+                let remove = gio::SimpleAction::new("remove-shortcut", None);
+                remove.connect_activate(move |_, _| {
+                    if let Some(t) = remove_weak.upgrade()
+                        && let Some(w) = t.page.root().and_downcast::<gtk::Window>()
+                    {
+                        shortcut::remove(&w, &t);
+                    }
+                });
+                let actions = gio::SimpleActionGroup::new();
+                actions.add_action(&create);
+                actions.add_action(&remove);
+                address_label.insert_action_group("address", Some(&actions));
+                let click_weak = weak.clone();
+                let click = gtk::GestureClick::new();
+                click.set_button(gdk::BUTTON_SECONDARY);
+                click.connect_pressed(move |_, _, x, y| {
+                    if let Some(t) = click_weak.upgrade() {
+                        t.address_menu(x, y);
+                    }
+                });
+                address_label.add_controller(click);
+            }
             let star = gtk::ToggleButton::new();
             star.set_icon_name("non-starred-symbolic");
             star.set_tooltip_text(Some("Add to favorites"));
@@ -368,6 +404,34 @@ impl Tab {
 
     pub fn has_address(&self) -> bool {
         self.session.borrow().url.is_some()
+    }
+
+    /// Shows the menu of the address bar at (`x`, `y`): a desktop shortcut
+    /// to the app of the tab, or its removal.
+    fn address_menu(self: &Rc<Self>, x: f64, y: f64) {
+        if self.entry().is_none() {
+            return;
+        }
+        let menu = gio::Menu::new();
+        if shortcut::installed(self) {
+            menu.append(
+                Some("Remove desktop shortcut"),
+                Some("address.remove-shortcut"),
+            );
+        } else {
+            menu.append(Some("Create desktop shortcut"), Some("address.shortcut"));
+        }
+        let popover = gtk::PopoverMenu::from_model(Some(&menu));
+        popover.set_parent(&self.address_label);
+        popover.set_has_arrow(false);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        // Made for each click, and gone once closed, so the label never
+        // outlives a child.
+        popover.connect_closed(|p| {
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
     }
 
     /// Focuses the address field of a new tab; false if the tab has an
@@ -727,17 +791,22 @@ impl Tab {
         let connecting = s.state == State::Connecting;
         self.spinner.set_spinning(connecting);
         self.update_lead();
-        let icon = match (&s.state, s.url.as_ref().map(Url::scheme)) {
-            (State::Open, Some("https" | "iroh")) => Some("channel-secure-symbolic"),
-            (State::Open, _) => Some("channel-insecure-symbolic"),
-            (State::Closed(_), _) => Some("network-offline-symbolic"),
+        // No lock icons: only connections that are not encrypted, and
+        // closed ones, are marked.
+        let secure = matches!(
+            (&s.state, s.url.as_ref().map(Url::scheme)),
+            (State::Open, Some("https" | "iroh"))
+        );
+        let icon = match &s.state {
+            State::Open if !secure => Some("dialog-warning-symbolic"),
+            State::Open => None,
+            State::Closed(_) => Some("network-offline-symbolic"),
             _ => None,
         };
         self.status.set_icon_name(icon);
         self.status.set_visible(icon.is_some());
         self.status.set_tooltip_text(match &s.state {
-            State::Open if icon == Some("channel-secure-symbolic") => Some("Connected (encrypted)"),
-            State::Open => Some("Connected (not encrypted)"),
+            State::Open if !secure => Some("Connected (not encrypted)"),
             State::Closed(_) => Some("Disconnected"),
             _ => None,
         });

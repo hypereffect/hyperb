@@ -1,8 +1,9 @@
 //! Apps on their own: the addresses given on the command line open each in a
 //! window of its own, with no tabs, controls or debugger, as if the app were
-//! installed. The window shows the app's address, read-only, and its title
-//! ends in "(hyperb)", as do the names of shortcuts to it, so it is clear
-//! where it comes from.
+//! installed. The window shows the app's address, read-only, with a context
+//! menu that makes or removes a desktop shortcut to it, and its title ends in
+//! "(hyperb)", as do the names of shortcuts to it, so it is clear where it
+//! comes from.
 //!
 //! Such a process runs under an application id made from the address
 //! ([`app_id`]) instead of the browser's, so the system shows it as an app of

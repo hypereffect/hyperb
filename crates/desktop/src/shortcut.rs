@@ -3,7 +3,8 @@
 //! the desktop on Linux, a `.lnk` on the desktop on Windows, and a small
 //! `.app` bundle on the desktop on macOS. Each starts hyperb the way this
 //! process was started, with the address as its argument, and has the title,
-//! description and icon of the app.
+//! description and icon of the app. The shortcut can be removed again, which
+//! deletes every file it was made of.
 
 use crate::library::Library;
 use crate::tab::Tab;
@@ -14,7 +15,7 @@ use gtk4 as gtk;
 use hyperb_core::library::Store;
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// The icon of shortcuts to apps without one.
@@ -50,6 +51,45 @@ pub fn create(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
                 .build(),
             Ok(Err(e)) => gtk::AlertDialog::builder()
                 .message("Could not create the shortcut")
+                .detail(e.to_string())
+                .build(),
+            Err(_) => return,
+        };
+        dialog.show(Some(&window));
+    });
+}
+
+/// Whether there is a desktop shortcut to the app of tab `t`.
+pub fn installed(t: &Tab) -> bool {
+    let Some(entry) = t.entry() else { return false };
+    shortcut_files(&entry.address, &entry.title)
+        .iter()
+        .any(|p| is_shortcut(p))
+}
+
+/// Removes the desktop shortcut to the app of tab `t`, then tells the user
+/// what was removed, or what went wrong.
+pub fn remove(window: &gtk::Window, t: &Tab) {
+    let Some(entry) = t.entry() else { return };
+    let (address, title) = (entry.address, entry.title);
+    let window = window.clone();
+    glib::spawn_future_local(async move {
+        let dialog = match gio::spawn_blocking(move || uninstall(&address, &title)).await {
+            Ok(Ok(paths)) if paths.is_empty() => gtk::AlertDialog::builder()
+                .message("No desktop shortcut to remove")
+                .build(),
+            Ok(Ok(paths)) => gtk::AlertDialog::builder()
+                .message("Shortcut removed")
+                .detail(
+                    paths
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+                .build(),
+            Ok(Err(e)) => gtk::AlertDialog::builder()
+                .message("Could not remove the shortcut")
                 .detail(e.to_string())
                 .build(),
             Err(_) => return,
@@ -134,6 +174,16 @@ fn desktop_dir() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::other("there is no desktop folder"))
 }
 
+/// Where the applications menu keeps its `.desktop` files.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn applications_dir() -> io::Result<PathBuf> {
+    let data = Store::default_dir().ok_or_else(|| io::Error::other("no data directory"))?;
+    let share = data
+        .parent()
+        .ok_or_else(|| io::Error::other("no data directory"))?;
+    Ok(share.join("applications"))
+}
+
 /// `title` as a file name, without the characters some systems refuse.
 #[cfg_attr(all(unix, not(target_os = "macos")), allow(dead_code))]
 fn file_name(title: &str) -> String {
@@ -151,6 +201,115 @@ fn file_name(title: &str) -> String {
         "hyperb app".into()
     } else {
         name.into()
+    }
+}
+
+/// The files a shortcut to the app at `address` is made of.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn shortcut_files(address: &str, _title: &str) -> Vec<PathBuf> {
+    let name = format!("{}.desktop", crate::standalone::app_id(address));
+    let mut files = Vec::new();
+    if let Ok(dir) = applications_dir() {
+        files.push(dir.join(&name));
+    }
+    if let Ok(dir) = desktop_dir() {
+        files.push(dir.join(&name));
+    }
+    files
+}
+
+/// The files a shortcut to the app at `address` is made of.
+#[cfg(windows)]
+fn shortcut_files(_address: &str, title: &str) -> Vec<PathBuf> {
+    desktop_dir()
+        .map(|d| vec![d.join(format!("{}.lnk", file_name(title)))])
+        .unwrap_or_default()
+}
+
+/// The files a shortcut to the app at `address` is made of.
+#[cfg(target_os = "macos")]
+fn shortcut_files(_address: &str, title: &str) -> Vec<PathBuf> {
+    desktop_dir()
+        .map(|d| vec![d.join(format!("{}.app", file_name(title)))])
+        .unwrap_or_default()
+}
+
+/// The icon file a shortcut to the app at `address` uses, if it has one.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn shortcut_icon(address: &str, _title: &str) -> Option<PathBuf> {
+    icons_dir()
+        .ok()
+        .map(|d| d.join(format!("{}.png", crate::standalone::app_id(address))))
+}
+
+/// The icon file a shortcut to the app at `address` uses, if it has one.
+#[cfg(windows)]
+fn shortcut_icon(address: &str, _title: &str) -> Option<PathBuf> {
+    icons_dir()
+        .ok()
+        .map(|d| d.join(format!("{}.ico", crate::standalone::app_id(address))))
+}
+
+/// The icon file a shortcut to the app at `address` uses, if it has one.
+#[cfg(target_os = "macos")]
+fn shortcut_icon(_address: &str, _title: &str) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_shortcut(path: &Path) -> bool {
+    path.is_file()
+}
+
+#[cfg(target_os = "macos")]
+fn is_shortcut(path: &Path) -> bool {
+    path.join("Contents/MacOS/launch").is_file()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn remove_shortcut(path: &Path) -> io::Result<bool> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn remove_shortcut(path: &Path) -> io::Result<bool> {
+    if !is_shortcut(path) {
+        return Ok(false);
+    }
+    std::fs::remove_dir_all(path)?;
+    Ok(true)
+}
+
+/// Removes the files of the shortcut to the app at `address`, and returns the
+/// ones that were there.
+fn uninstall(address: &str, title: &str) -> io::Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
+    let mut failure = None;
+    for path in shortcut_files(address, title) {
+        match remove_shortcut(&path) {
+            Ok(true) => removed.push(path),
+            Ok(false) => {}
+            Err(e) => {
+                failure.get_or_insert(e);
+            }
+        }
+    }
+    if let Some(icon) = shortcut_icon(address, title) {
+        match std::fs::remove_file(&icon) {
+            Ok(()) => removed.push(icon),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => {
+                failure.get_or_insert(e);
+            }
+        }
+    }
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(removed),
     }
 }
 
@@ -176,9 +335,7 @@ fn install(s: &Shortcut) -> io::Result<PathBuf> {
         value(&exec.join(" ")),
         value(&icon.to_string_lossy()),
     );
-    let apps = Store::default_dir()
-        .and_then(|d| Some(d.parent()?.join("applications")))
-        .ok_or_else(|| io::Error::other("no data directory"))?;
+    let apps = applications_dir()?;
     std::fs::create_dir_all(&apps)?;
     let name = format!("{id}.desktop");
     std::fs::write(apps.join(&name), &file)?;

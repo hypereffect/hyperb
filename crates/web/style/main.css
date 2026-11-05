@@ -134,10 +134,6 @@ textarea {
   content: none;
 }
 
-.hb-status[data-status="secure"]::before {
-  content: "🔒";
-}
-
 .hb-status[data-status="insecure"]::before {
   content: "⚠";
   color: var(--warning);
