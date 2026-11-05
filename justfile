@@ -31,19 +31,30 @@ desktop-install:
 tui *args:
     cargo run -p hyperb-tui -- {{args}}
 
-wasm_apps := "billsplit chart dbclient finance grammar minecraft pomodoro qr restaurant saas smarthome textutils worldclock"
+# The apps come from the demoapps features (every feature except `default`).
+wasm_apps := `cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "hyperb-demoapps") | (.features | keys - ["default"] | join(" "))'`
+
+# Build one demo app as a wasm module into wasm-apps/, e.g. `just wasm-app pomodoro`
+wasm-app app:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case " {{wasm_apps}} " in
+        *" {{app}} "*) ;;
+        *) echo "unknown wasm app '{{app}}'; expected one of: {{wasm_apps}}" >&2; exit 1 ;;
+    esac
+    mkdir -p wasm-apps
+    target=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)
+    # Harper (grammar) needs random numbers; the module makes its own.
+    export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='--cfg getrandom_backend="custom"'
+    cargo build -q --target wasm32-unknown-unknown --release -p hyperb-demoapps --no-default-features --features "{{app}}"
+    cp "$target/wasm32-unknown-unknown/release/demoapps.wasm" "wasm-apps/{{app}}.wasm"
 
 # Build the demo apps as wasm modules into wasm-apps/
 wasm-apps:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p wasm-apps
-    target=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)
-    # Harper (grammar) needs random numbers; the module makes its own.
-    export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='--cfg getrandom_backend="custom"'
     for app in {{wasm_apps}}; do
-        cargo build -q --target wasm32-unknown-unknown --release -p hyperb-demoapps --no-default-features --features "$app"
-        cp "$target/wasm32-unknown-unknown/release/demoapps.wasm" "wasm-apps/$app.wasm"
+        just wasm-app "$app"
     done
 
 # Serve wasm-apps/ over HTTP, with CORS for the web app, and print the demo apps' hyperb:// addresses
