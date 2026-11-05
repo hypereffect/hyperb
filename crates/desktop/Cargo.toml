@@ -2,6 +2,7 @@
 name = "hyperb-desktop"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "A browser for hypereffect apps"
 
 [[bin]]
