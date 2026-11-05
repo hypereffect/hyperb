@@ -1,6 +1,7 @@
 //! Tools on code: CSS, JavaScript, JSON and SQL formatting, JavaScript
 //! objects to JSON, and JSON to CSV.
 
+use super::Output;
 use super::Opts;
 use hypereffect::serde_json::{self, Map, Value};
 use serde::Serialize;
@@ -21,9 +22,9 @@ fn parse_json(text: &str) -> Result<Value, String> {
     serde_json::from_str(text).map_err(|e| format!("Not JSON: {e}."))
 }
 
-pub fn json(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v = parse_json(text)?;
-    Ok(json_text(&v, if o.mode == "minify" { 0 } else { o.number }))
+    Ok(json_text(&v, if o.mode == "minify" { 0 } else { o.number }).into())
 }
 
 /// A piece of code for the formatters: a string or comment kept verbatim,
@@ -242,9 +243,9 @@ fn minify(src: &str, quotes: &[char], line_comment: Option<&str>, tight: &str) -
     out.trim().to_owned()
 }
 
-pub fn css(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn css(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "minify" {
-        return Ok(minify(text, &['"', '\''], None, "{}:;,>+~()").replace(";}", "}"));
+        return Ok(minify(text, &['"', '\''], None, "{}:;,>+~()").replace(";}", "}").into());
     }
     let formatted = blocks(text, o.number, &['"', '\''], None, false);
     // One space after a property's colon, and an empty line between rules.
@@ -275,12 +276,12 @@ pub fn css(text: &str, o: &mut Opts) -> Result<String, String> {
             out.push(String::new());
         }
     }
-    Ok(out.join("\n").trim_end().to_owned())
+    Ok(out.join("\n").trim_end().to_owned().into())
 }
 
-pub fn javascript(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn javascript(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "minify" {
-        return Ok(minify(text, &['"', '\'', '`'], Some("//"), "{}()[];,:=+-*/<>!&|?"));
+        return Ok(minify(text, &['"', '\'', '`'], Some("//"), "{}()[];,:=+-*/<>!&|?").into());
     }
     let formatted = blocks(text, o.number, &['"', '\'', '`'], Some("//"), false);
     // Spaces around operators and after commas, outside strings.
@@ -299,7 +300,7 @@ pub fn javascript(text: &str, o: &mut Opts) -> Result<String, String> {
             out
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n").into())
 }
 
 fn space_operators(code: &str) -> String {
@@ -349,7 +350,7 @@ const SQL_WORDS: [&str; 34] = [
     "NOT", "AS", "IN", "IS", "NULL", "DISTINCT", "ASC", "DESC", "RETURNING",
 ];
 
-pub fn sql(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn sql(text: &str, o: &mut Opts) -> Result<Output, String> {
     // Words, with keywords in capitals when asked.
     let mut flat = String::new();
     for p in pieces(text, &['\'', '"', '`'], Some("--")) {
@@ -377,7 +378,7 @@ pub fn sql(text: &str, o: &mut Opts) -> Result<String, String> {
     let flat = squeeze(&flat, "");
     let flat = flat.replace(" ,", ",").replace("( ", "(").replace(" )", ")");
     if o.mode == "minify" {
-        return Ok(flat.trim().to_owned());
+        return Ok(flat.trim().to_owned().into());
     }
     let pad = " ".repeat(o.number);
     let mut out = String::new();
@@ -442,7 +443,7 @@ pub fn sql(text: &str, o: &mut Opts) -> Result<String, String> {
         out.push(c);
         rest = &rest[c.len_utf8()..];
     }
-    Ok(out.trim_end().to_owned())
+    Ok(out.trim_end().to_owned().into())
 }
 
 /// A JavaScript object literal, read leniently: unquoted and single-quoted
@@ -625,8 +626,8 @@ pub fn lenient_json(text: &str) -> Result<Value, String> {
     Ok(v)
 }
 
-pub fn js_object(text: &str, o: &mut Opts) -> Result<String, String> {
-    Ok(json_text(&lenient_json(text)?, o.number))
+pub fn js_object(text: &str, o: &mut Opts) -> Result<Output, String> {
+    Ok(json_text(&lenient_json(text)?, o.number).into())
 }
 
 /// Flattens nested objects to `a.b` columns; arrays of scalars are joined.
@@ -655,7 +656,7 @@ fn scalar(v: &Value) -> String {
     }
 }
 
-pub fn json_to_csv(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn json_to_csv(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v = parse_json(text)?;
     let rows: Vec<Value> = match v {
         Value::Array(a) => a,
@@ -702,7 +703,7 @@ pub fn json_to_csv(text: &str, o: &mut Opts) -> Result<String, String> {
                 .join(sep),
         );
     }
-    Ok(out.join("\n"))
+    Ok(out.join("\n").into())
 }
 
 
@@ -743,12 +744,12 @@ mod tests {
     use super::super::{Opts, Rng};
     use super::*;
 
-    fn run(f: fn(&str, &mut Opts) -> Result<String, String>, text: &str, mode: &str) -> String {
+    fn run(f: fn(&str, &mut Opts) -> Result<Output, String>, text: &str, mode: &str) -> String {
         let mut rng = Rng(1);
         let mut o = Opts::new(mode, &mut rng);
         o.number = 2;
         o.flag = true;
-        f(text, &mut o).unwrap()
+        f(text, &mut o).unwrap().plain()
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Tools on plain text: cleaning, sorting, counting, extracting and numbers.
 
-use super::{Opts, table};
+use super::Output;
+use super::{Opts, table, verdict};
 use regex_lite::{Regex, RegexBuilder};
 use std::collections::{HashMap, HashSet};
 use unicode_normalization::UnicodeNormalization;
@@ -22,9 +23,9 @@ fn words(text: &str) -> Vec<&str> {
 }
 
 /// Every match of `re` in `text`, one per line, without repeats if `unique`.
-fn extract(re: &Regex, text: &str, unique: bool, group: usize) -> String {
+fn extract(re: &Regex, text: &str, unique: bool, group: usize) -> Output {
     let mut seen = HashSet::new();
-    lines(
+    super::list(
         re.captures_iter(text)
             .filter_map(|c| c.get(group).map(|m| m.as_str()))
             .filter(|m| !unique || seen.insert(*m)),
@@ -37,7 +38,7 @@ fn regex(pattern: &str) -> Regex {
 
 // Text
 
-pub fn case(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn case(text: &str, o: &mut Opts) -> Result<Output, String> {
     let capitalize = |w: &str| {
         let mut c = w.chars();
         c.next().map_or(String::new(), |f| {
@@ -57,7 +58,7 @@ pub fn case(text: &str, o: &mut Opts) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "lower" => text.to_lowercase(),
         "title" => {
             let mut out = String::new();
@@ -127,10 +128,10 @@ pub fn case(text: &str, o: &mut Opts) -> Result<String, String> {
         "kebab" => joined("-", &|_, w| w.to_lowercase()),
         "constant" => joined("_", &|_, w| w.to_uppercase()),
         _ => text.to_uppercase(),
-    })
+    }))
 }
 
-pub fn find_replace(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn find_replace(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.first.is_empty() {
         return Err("Type what to find.".into());
     }
@@ -143,17 +144,22 @@ pub fn find_replace(text: &str, o: &mut Opts) -> Result<String, String> {
         .build()
         .map_err(|e| format!("Not a regular expression: {e}"))?;
     let found = re.find_iter(text).count();
-    o.info = Some(format!("{found} replaced"));
-    Ok(match o.mode {
+    Ok(Output::from(match o.mode {
         "regex" => re.replace_all(text, o.second).into_owned(),
         _ => re
             .replace_all(text, regex_lite::NoExpand(o.second))
             .into_owned(),
     })
+    .note(format!("{found} replaced")))
 }
 
-pub fn remove_accents(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(text
+pub fn remove_accents(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(unaccented(text).into())
+}
+
+/// `text` without accents and diacritics.
+pub fn unaccented(text: &str) -> String {
+    text
         .nfd()
         .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
         .flat_map(|c| {
@@ -179,7 +185,7 @@ pub fn remove_accents(text: &str, _: &mut Opts) -> Result<String, String> {
             };
             s.chars().collect()
         })
-        .collect())
+        .collect()
 }
 
 fn separator(mode: &str) -> &'static str {
@@ -190,7 +196,7 @@ fn separator(mode: &str) -> &'static str {
     }
 }
 
-pub fn duplicate_keywords(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn duplicate_keywords(text: &str, o: &mut Opts) -> Result<Output, String> {
     let sep = separator(o.mode);
     let mut seen = HashSet::new();
     let kept: Vec<&str> = text
@@ -199,10 +205,10 @@ pub fn duplicate_keywords(text: &str, o: &mut Opts) -> Result<String, String> {
         .filter(|k| !k.is_empty())
         .filter(|k| seen.insert(if o.flag { k.to_lowercase() } else { k.to_string() }))
         .collect();
-    Ok(kept.join(if sep == "," { ", " } else { sep }))
+    Ok(super::snippet(kept.join(if sep == "," { ", " } else { sep })))
 }
 
-pub fn duplicate_lines(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn duplicate_lines(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut seen = HashSet::new();
     let key = |l: &str| {
         let l = l.trim();
@@ -218,7 +224,7 @@ pub fn duplicate_lines(text: &str, o: &mut Opts) -> Result<String, String> {
         }
         _ => text.lines().filter(|l| seen.insert(key(l))).collect(),
     };
-    Ok(lines(kept))
+    Ok(super::snippet(lines(kept)))
 }
 
 fn is_emoji(c: char) -> bool {
@@ -243,15 +249,15 @@ fn tidy(text: &str) -> String {
         .join("\n")
 }
 
-pub fn remove_emojis(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(tidy(&text.chars().filter(|c| !is_emoji(*c)).collect::<String>()))
+pub fn remove_emojis(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(tidy(&text.chars().filter(|c| !is_emoji(*c)).collect::<String>())))
 }
 
-pub fn remove_empty_lines(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(lines(text.lines().filter(|l| !l.trim().is_empty())))
+pub fn remove_empty_lines(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(lines(text.lines().filter(|l| !l.trim().is_empty()))))
 }
 
-pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "json" {
         // Whitespace outside of strings goes; JSON need not be valid.
         let mut out = String::new();
@@ -272,9 +278,9 @@ pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<String, String> {
                 out.push(c);
             }
         }
-        return Ok(out);
+        return Ok(super::snippet(out));
     }
-    Ok(text
+    Ok(super::snippet(text
         .lines()
         .map(|l| {
             let mut out = String::new();
@@ -288,19 +294,19 @@ pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<String, String> {
             out
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")))
 }
 
-pub fn remove_hashtags(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(tidy(&regex(r"(^|\s)#\w+").replace_all(text, "$1")))
+pub fn remove_hashtags(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(tidy(&regex(r"(^|\s)#\w+").replace_all(text, "$1"))))
 }
 
-pub fn remove_line_breaks(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn remove_line_breaks(text: &str, o: &mut Opts) -> Result<Output, String> {
     let join = |t: &str| match o.mode {
         "nothing" => t.lines().map(str::trim).collect::<String>(),
         _ => t.split_whitespace().collect::<Vec<_>>().join(" "),
     };
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "paragraphs" => regex(r"\n\s*\n")
             .split(text)
             .map(join)
@@ -308,27 +314,27 @@ pub fn remove_line_breaks(text: &str, o: &mut Opts) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join("\n\n"),
         _ => join(text),
-    })
+    }))
 }
 
-pub fn lines_containing(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn lines_containing(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.first.is_empty() {
         return Err("Type the text the lines should contain.".into());
     }
     let needle = if o.flag { o.first.to_lowercase() } else { o.first.to_owned() };
     let keep = o.mode == "keep";
-    Ok(lines(text.lines().filter(|l| {
+    Ok(super::snippet(lines(text.lines().filter(|l| {
         let found = if o.flag {
             l.to_lowercase().contains(&needle)
         } else {
             l.contains(&needle)
         };
         found == keep
-    })))
+    }))))
 }
 
-pub fn reverse(text: &str, o: &mut Opts) -> Result<String, String> {
-    Ok(match o.mode {
+pub fn reverse(text: &str, o: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(match o.mode {
         "words" => lines(text.lines().map(|l| {
             l.split_whitespace().rev().collect::<Vec<_>>().join(" ")
         })),
@@ -340,10 +346,10 @@ pub fn reverse(text: &str, o: &mut Opts) -> Result<String, String> {
                 .join(" ")
         })),
         _ => text.chars().rev().collect(),
-    })
+    }))
 }
 
-pub fn sort_lines(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn sort_lines(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut v: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let key = |l: &str| if o.flag { l.to_lowercase() } else { l.to_owned() };
     match o.mode {
@@ -353,10 +359,10 @@ pub fn sort_lines(text: &str, o: &mut Opts) -> Result<String, String> {
         "reverse" => v.reverse(),
         _ => v.sort_by_key(|l| key(l)),
     }
-    Ok(lines(v))
+    Ok(super::snippet(lines(v)))
 }
 
-pub fn counter(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn counter(text: &str, _: &mut Opts) -> Result<Output, String> {
     let all = words(text);
     let mut counts = HashMap::new();
     for w in &all {
@@ -384,34 +390,31 @@ pub fn counter(text: &str, _: &mut Opts) -> Result<String, String> {
         ("Lines", text.lines().count().to_string()),
         ("Reading time", format!("{}m {:02}s", reading / 60, reading % 60)),
     ];
-    let mut out = table(&rows);
-    if !ranked.is_empty() {
-        out.push_str("\n\nMost used words:");
-        for (i, (word, count)) in ranked.iter().take(5).enumerate() {
-            out.push_str(&format!("\n{}. {word} — {count}×", i + 1));
-        }
+    let out = table(&rows);
+    if ranked.is_empty() {
+        return Ok(out);
     }
-    Ok(out)
+    Ok(out.note("Most used words").table(&["Word", "Times"], ranked.iter().take(5).map(|(word, count)| vec![word.clone(), format!("{count}×")])))
 }
 
-pub fn upside_down(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn upside_down(text: &str, _: &mut Opts) -> Result<Output, String> {
     const FROM: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?'\"()[]{}<>&_;";
     const TO: &str = "ɐqɔpǝɟƃɥᴉɾʞlɯuodbɹsʇnʌʍxʎz∀ꓭƆꓷƎℲ⅁HIſꓘ˥WNOԀῸꓤS⊥∩ΛMX⅄Z0ƖᄅƐㄣϛ9ㄥ86˙'¡¿,„)(][}{><⅋‾؛";
     let map: HashMap<char, char> = FROM.chars().zip(TO.chars()).collect();
-    Ok(text
+    Ok(super::snippet(text
         .lines()
         .rev()
         .map(|l| l.chars().rev().map(|c| *map.get(&c).unwrap_or(&c)).collect::<String>())
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")))
 }
 
 // Extractors
 
-pub fn capitalized(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn capitalized(text: &str, o: &mut Opts) -> Result<Output, String> {
     let all_caps = o.mode == "caps";
     let mut seen = HashSet::new();
-    Ok(lines(words(text).into_iter().filter(|w| {
+    Ok(super::list(words(text).into_iter().filter(|w| {
         let mut letters = w.chars().filter(|c| c.is_alphabetic());
         let ok = if all_caps {
             w.chars().filter(|c| c.is_alphabetic()).count() > 1
@@ -425,19 +428,19 @@ pub fn capitalized(text: &str, o: &mut Opts) -> Result<String, String> {
 
 const MONTHS: &str = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
 
-pub fn dates(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn dates(text: &str, o: &mut Opts) -> Result<Output, String> {
     let re = regex(&format!(
         r"(?i)\b(\d{{4}}[-/.]\d{{1,2}}[-/.]\d{{1,2}}|\d{{1,2}}[-/.]\d{{1,2}}[-/.]\d{{2,4}}|{MONTHS}\.? \d{{1,2}}(?:st|nd|rd|th)?,? \d{{4}}|\d{{1,2}}(?:st|nd|rd|th)? (?:of )?{MONTHS}\.?,? \d{{4}}|{MONTHS} \d{{4}})\b"
     ));
     Ok(extract(&re, text, o.flag, 1))
 }
 
-pub fn emails(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn emails(text: &str, o: &mut Opts) -> Result<Output, String> {
     let re = regex(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}");
     Ok(extract(&re, text, o.flag, 0))
 }
 
-pub fn quotes(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn quotes(text: &str, o: &mut Opts) -> Result<Output, String> {
     let pattern = match o.mode {
         "double" => r#""([^"\n]*)"|“([^”\n]*)”|«([^»\n]*)»"#,
         // Single quotes only around a phrase, so apostrophes are not taken.
@@ -445,7 +448,7 @@ pub fn quotes(text: &str, o: &mut Opts) -> Result<String, String> {
         _ => r#""([^"\n]*)"|“([^”\n]*)”|«([^»\n]*)»|(?:^|[^\w])'([^'\n]+)'(?:[^\w]|$)|‘([^’\n]*)’"#,
     };
     let mut seen = HashSet::new();
-    Ok(lines(
+    Ok(super::list(
         regex(pattern)
             .captures_iter(text)
             .filter_map(|c| c.iter().skip(1).flatten().next().map(|m| m.as_str()))
@@ -453,22 +456,22 @@ pub fn quotes(text: &str, o: &mut Opts) -> Result<String, String> {
     ))
 }
 
-pub fn urls(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn urls(text: &str, o: &mut Opts) -> Result<Output, String> {
     let re = regex(r#"(?i)\b(?:(?:https?|ftp)://|www\.)[^\s<>"'`]+"#);
     let mut seen = HashSet::new();
-    Ok(lines(
+    Ok(super::list(
         re.find_iter(text)
             .map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']']))
             .filter(|m| !o.flag || seen.insert(*m)),
     ))
 }
 
-pub fn hashtags(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn hashtags(text: &str, o: &mut Opts) -> Result<Output, String> {
     let re = regex(r"(?:^|[^\w&#])(#\w*[^\W\d]\w*)");
     Ok(extract(&re, text, o.flag, 1))
 }
 
-pub fn ips(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn ips(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v4 = r"\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b";
     let v6 = r"(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|::(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4}";
     let pattern = match o.mode {
@@ -480,7 +483,7 @@ pub fn ips(text: &str, o: &mut Opts) -> Result<String, String> {
     // Overlapping boundaries: run on each word so neighbours are not eaten.
     let re = regex(&pattern);
     let mut seen = HashSet::new();
-    Ok(lines(
+    Ok(super::list(
         text.split_whitespace()
             .flat_map(|w| {
                 re.captures_iter(w)
@@ -504,7 +507,7 @@ fn is_odd_space(c: char) -> bool {
     matches!(c as u32, 0x00A0 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000)
 }
 
-pub fn hidden(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn hidden(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut removed = 0;
     let out: String = text
         .chars()
@@ -520,12 +523,11 @@ pub fn hidden(text: &str, o: &mut Opts) -> Result<String, String> {
             }
         })
         .collect();
-    o.info = Some(format!("{removed} hidden characters found"));
-    Ok(out)
+    Ok(Output::from(out).note(format!("{removed} hidden characters found")))
 }
 
-pub fn special(text: &str, o: &mut Opts) -> Result<String, String> {
-    Ok(text
+pub fn special(text: &str, o: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(text
         .chars()
         .filter(|c| {
             c.is_whitespace()
@@ -536,7 +538,7 @@ pub fn special(text: &str, o: &mut Opts) -> Result<String, String> {
                     _ => c.is_alphanumeric(),
                 }
         })
-        .collect())
+        .collect()))
 }
 
 // Numbers
@@ -545,16 +547,16 @@ fn number_re() -> Regex {
     regex(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?|[-+]?\.\d+")
 }
 
-pub fn extract_numbers(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn extract_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
     let found: Vec<&str> = number_re().find_iter(text).map(|m| m.as_str()).collect();
-    Ok(found.join(separator(o.mode)))
+    Ok(super::snippet(found.join(separator(o.mode))))
 }
 
-pub fn remove_numbers(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(tidy(&regex(r"\d").replace_all(text, "")))
+pub fn remove_numbers(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(tidy(&regex(r"\d").replace_all(text, ""))))
 }
 
-pub fn sort_numbers(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn sort_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut found: Vec<(f64, &str)> = number_re()
         .find_iter(text)
         .filter_map(|m| Some((m.as_str().replace(',', "").parse().ok()?, m.as_str())))
@@ -569,12 +571,12 @@ pub fn sort_numbers(text: &str, o: &mut Opts) -> Result<String, String> {
     if o.flag {
         found.dedup_by(|a, b| a.0 == b.0);
     }
-    Ok(found.iter().map(|(_, s)| *s).collect::<Vec<_>>().join("\n"))
+    Ok(super::snippet(found.iter().map(|(_, s)| *s).collect::<Vec<_>>().join("\n")))
 }
 
 // More text
 
-pub fn char_frequency(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn char_frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut counts: HashMap<char, usize> = HashMap::new();
     for c in text.chars().filter(|c| !c.is_whitespace() || o.flag) {
         let c = if o.check(1) { c.to_lowercase().next().unwrap_or(c) } else { c };
@@ -583,18 +585,18 @@ pub fn char_frequency(text: &str, o: &mut Opts) -> Result<String, String> {
     let total: usize = counts.values().sum();
     let mut ranked: Vec<(char, usize)> = counts.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(lines(ranked.iter().map(|(c, n)| {
+    Ok(super::grid(&["Character", "Count", "Share"], ranked.iter().map(|(c, n)| {
         let shown = match c {
             ' ' => "space".to_owned(),
             '\n' => "newline".to_owned(),
             '\t' => "tab".to_owned(),
             c => c.to_string(),
         };
-        format!("{shown}\t{n}\t{:.2}%", *n as f64 * 100.0 / total as f64)
+        vec![shown, n.to_string(), format!("{:.2}%", *n as f64 * 100.0 / total as f64)]
     })))
 }
 
-pub fn word_frequency(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn word_frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for w in words(text) {
         let w = w.to_lowercase();
@@ -605,7 +607,7 @@ pub fn word_frequency(text: &str, o: &mut Opts) -> Result<String, String> {
     let total: usize = counts.values().sum();
     let mut ranked: Vec<(String, usize)> = counts.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(lines(ranked.iter().map(|(w, n)| format!("{w}\t{n}\t{:.2}%", *n as f64 * 100.0 / total as f64))))
+    Ok(super::grid(&["Word", "Count", "Share"], ranked.iter().map(|(w, n)| vec![w.clone(), n.to_string(), format!("{:.2}%", *n as f64 * 100.0 / total as f64)])))
 }
 
 /// The lines of `a` and `b`, as `  `, `- ` and `+ ` lines, from the longest
@@ -636,7 +638,7 @@ fn diff_lines<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<(char, &'a str)> {
     out
 }
 
-pub fn diff(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn diff(text: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = text
         .split_once("\n===\n")
         .ok_or("Put a line with only “===” between the two texts.")?;
@@ -650,9 +652,9 @@ pub fn diff(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     let d = diff_lines(&a, &b);
     let (added, removed) = (d.iter().filter(|x| x.0 == '+').count(), d.iter().filter(|x| x.0 == '-').count());
-    o.info = Some(format!("{added} added, {removed} removed"));
+    let note = format!("{added} added, {removed} removed");
     if o.mode == "words" {
-        return Ok(d
+        return Ok(super::snippet(d
             .iter()
             .map(|(k, w)| match k {
                 '+' => format!("{{+{w}+}}"),
@@ -660,9 +662,10 @@ pub fn diff(text: &str, o: &mut Opts) -> Result<String, String> {
                 _ => w.to_string(),
             })
             .collect::<Vec<_>>()
-            .join(" "));
+            .join(" "))
+        .note(note));
     }
-    Ok(lines(d.iter().filter(|(k, _)| !o.flag || *k != ' ').map(|(k, l)| format!("{k} {l}"))))
+    Ok(Output::from(lines(d.iter().filter(|(k, _)| !o.flag || *k != ' ').map(|(k, l)| format!("{k} {l}")))).note(note))
 }
 
 /// Letters in another Unicode alphabet: the offsets of `A`, `a` and `0`.
@@ -677,7 +680,7 @@ fn alphabet(c: char, upper: u32, lower: u32, digit: Option<u32>) -> char {
     r.unwrap_or(c)
 }
 
-pub fn fancy(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn fancy(text: &str, o: &mut Opts) -> Result<Output, String> {
     // Letters that Unicode placed elsewhere, before the gaps they leave.
     let holes = |c: char, s: char| -> char {
         match (o.mode, s) {
@@ -709,7 +712,7 @@ pub fn fancy(text: &str, o: &mut Opts) -> Result<String, String> {
         }
     };
     const SMALL: &str = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ";
-    Ok(text
+    Ok(super::snippet(text
         .chars()
         .map(|c| {
             let mapped = match o.mode {
@@ -736,28 +739,28 @@ pub fn fancy(text: &str, o: &mut Opts) -> Result<String, String> {
             };
             holes(mapped, c).to_string()
         })
-        .collect())
+        .collect()))
 }
 
-pub fn line_numbers(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn line_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
     let start = o.opt_num(0)?.unwrap_or(1.0) as i64;
     let sep = if o.second.is_empty() { ". " } else { o.second };
     let count = text.lines().count() as i64;
     let width = (start + count).to_string().len();
     let mut n = start;
-    Ok(lines(text.lines().map(|l| {
+    Ok(super::snippet(lines(text.lines().map(|l| {
         if o.flag && l.trim().is_empty() {
             return l.to_owned();
         }
         let s = format!("{n:>width$}{sep}{l}");
         n += 1;
         s
-    })))
+    }))))
 }
 
 const LOREM: &str = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum";
 
-pub fn lorem(_: &str, o: &mut Opts) -> Result<String, String> {
+pub fn lorem(_: &str, o: &mut Opts) -> Result<Output, String> {
     let vocab: Vec<&str> = LOREM.split(' ').collect();
     let n = o.number.max(1);
     let sentence = |rng: &mut super::Rng| {
@@ -771,7 +774,7 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<String, String> {
         format!("{}.", s.join(" "))
     };
     let start = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "words" => {
             let mut w: Vec<&str> = (0..n).map(|i| if o.flag && i < vocab.len() { vocab[i] } else { vocab[o.rng.below(vocab.len())] }).collect();
             if w.is_empty() {
@@ -798,7 +801,7 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<String, String> {
             }
             p.join("\n\n")
         }
-    })
+    }))
 }
 
 fn capitalize(w: &str) -> String {
@@ -806,16 +809,16 @@ fn capitalize(w: &str) -> String {
     c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
-pub fn slug(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn slug(text: &str, o: &mut Opts) -> Result<Output, String> {
     let sep = if o.mode == "underscore" { "_" } else { "-" };
-    let plain: String = remove_accents(text, o)?;
-    Ok(lines(plain.lines().map(|l| {
+    let plain = unaccented(text);
+    Ok(super::snippet(lines(plain.lines().map(|l| {
         let l = if o.flag { l.to_owned() } else { l.to_lowercase() };
         l.split(|c: char| !c.is_alphanumeric())
             .filter(|w| !w.is_empty())
             .collect::<Vec<_>>()
             .join(sep)
-    })))
+    }))))
 }
 
 // Writing
@@ -871,7 +874,7 @@ fn sentences(text: &str) -> Vec<&str> {
         .collect()
 }
 
-pub fn readability(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn readability(text: &str, _: &mut Opts) -> Result<Output, String> {
     let w = words(text);
     let s = sentences(text).len().max(1) as f64;
     if w.is_empty() {
@@ -904,7 +907,8 @@ pub fn readability(text: &str, _: &mut Opts) -> Result<String, String> {
         ("SMOG index", format!("{smog:.1}")),
         ("Coleman–Liau index", format!("{cli:.1}")),
         ("Automated readability", format!("{ari:.1}")),
-        ("", String::new()),
+    ])
+    .facts(&[
         ("Sentences", format!("{s}")),
         ("Words", format!("{n}")),
         ("Syllables", format!("{syl}")),
@@ -914,32 +918,26 @@ pub fn readability(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-pub fn syllable_count(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn syllable_count(text: &str, _: &mut Opts) -> Result<Output, String> {
     let w = words(text);
     let total: usize = w.iter().map(|w| syllables(w)).sum();
-    o_info_lines(total, w.iter().map(|w| format!("{w}\t{}", syllables(w))))
+    Ok(table(&[("Syllables", total.to_string())]).table(&["Word", "Syllables"], w.iter().map(|w| vec![w.to_string(), syllables(w).to_string()])))
 }
 
-fn o_info_lines(total: usize, items: impl Iterator<Item = String>) -> Result<String, String> {
-    let mut v: Vec<String> = items.collect();
-    v.push(String::new());
-    v.push(format!("Total: {total}"));
-    Ok(lines(v))
-}
-
-pub fn passive(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn passive(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = regex(r"(?i)\b(?:am|is|are|was|were|be|been|being|get|gets|got|gotten)\s+(?:\w+ly\s+)?(\w+(?:ed|en|wn|lt|pt|ung|ought|aught|ade|ung|id|one))\b");
-    let found: Vec<String> = sentences(text)
+    let found = sentences(text)
         .into_iter()
-        .filter_map(|s| re.find(s).map(|m| format!("{s}\n    → “{}”", m.as_str())))
-        .collect();
+        .filter_map(|s| re.find(s).map(|m| vec![s.to_owned(), format!("“{}”", m.as_str())]))
+        .collect::<Vec<_>>();
     if found.is_empty() {
-        return Ok("No passive voice found.".into());
+        return Ok(verdict(true, "No passive voice found."));
     }
-    Ok(format!("{} sentences in the passive voice:\n\n{}", found.len(), found.join("\n\n")))
+    let n = found.len();
+    Ok(verdict(false, format!("{n} sentence{} in the passive voice.", if n == 1 { "" } else { "s" })).table(&["Sentence", "Passive"], found))
 }
 
-pub fn adverbs(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn adverbs(text: &str, _: &mut Opts) -> Result<Output, String> {
     const NOT: &[&str] = &["only", "family", "early", "reply", "apply", "supply", "fly", "july", "italy", "rely", "holy", "ugly", "belly", "jelly", "bully", "rally", "ally", "lily", "silly", "daily", "friendly", "lovely", "lonely", "likely", "lively", "costly", "elderly", "orderly"];
     let mut counts: Vec<(String, usize)> = Vec::new();
     for w in words(text) {
@@ -953,9 +951,8 @@ pub fn adverbs(text: &str, _: &mut Opts) -> Result<String, String> {
     }
     let total: usize = counts.iter().map(|c| c.1).sum();
     let all = words(text).len().max(1);
-    let mut out = vec![format!("{total} adverbs in {all} words ({:.1}%)", total as f64 * 100.0 / all as f64), String::new()];
-    out.extend(counts.iter().map(|(w, n)| format!("{w}\t{n}")));
-    Ok(lines(out))
+    Ok(table(&[("Adverbs", total.to_string()), ("Words", all.to_string()), ("Share", format!("{:.1}%", total as f64 * 100.0 / all as f64))])
+        .table(&["Adverb", "Times"], counts.iter().map(|(w, n)| vec![w.clone(), n.to_string()])))
 }
 
 const CLICHES: &[&str] = &[
@@ -975,22 +972,22 @@ const CLICHES: &[&str] = &[
     "you can't judge a book by its cover", "think on your feet", "circle back", "deep dive", "synergy",
 ];
 
-pub fn cliches(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn cliches(text: &str, _: &mut Opts) -> Result<Output, String> {
     let lower = text.to_lowercase();
-    let found: Vec<String> = CLICHES
+    let found: Vec<Vec<String>> = CLICHES
         .iter()
         .filter_map(|c| {
             let n = lower.matches(c).count();
-            (n > 0).then(|| format!("{c}\t{n}"))
+            (n > 0).then(|| vec![(*c).to_owned(), format!("{n}×")])
         })
         .collect();
     if found.is_empty() {
-        return Ok("No clichés found.".into());
+        return Ok(verdict(true, "No clichés found."));
     }
-    Ok(lines(found))
+    Ok(super::grid(&["Cliché", "Times"], found))
 }
 
-pub fn repetition(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn repetition(text: &str, o: &mut Opts) -> Result<Output, String> {
     let w: Vec<String> = words(text).iter().map(|w| w.to_lowercase()).collect();
     let n = o.number.max(1);
     let mut counts: HashMap<String, usize> = HashMap::new();
@@ -1003,12 +1000,12 @@ pub fn repetition(text: &str, o: &mut Opts) -> Result<String, String> {
     let mut ranked: Vec<(String, usize)> = counts.into_iter().filter(|c| c.1 > 1).collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     if ranked.is_empty() {
-        return Ok("Nothing is repeated.".into());
+        return Ok(verdict(true, "Nothing is repeated."));
     }
-    Ok(lines(ranked.iter().take(50).map(|(p, c)| format!("{p}\t{c}×"))))
+    Ok(super::grid(&["Words", "Times"], ranked.iter().take(50).map(|(p, c)| vec![p.clone(), format!("{c}×")])))
 }
 
-pub fn sentence_length(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn sentence_length(text: &str, o: &mut Opts) -> Result<Output, String> {
     let limit = o.number.max(1);
     let all = sentences(text);
     if all.is_empty() {
@@ -1016,15 +1013,14 @@ pub fn sentence_length(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     let lens: Vec<usize> = all.iter().map(|s| words(s).len()).collect();
     let avg = lens.iter().sum::<usize>() as f64 / lens.len() as f64;
-    let mut out = vec![
-        format!("{} sentences, {avg:.1} words on average, longest {}", lens.len(), lens.iter().max().unwrap()),
-        String::new(),
-    ];
-    for (s, n) in all.iter().zip(&lens) {
-        let mark = if *n > limit { "⚠ " } else { "  " };
-        out.push(format!("{mark}{n:>3}  {s}"));
-    }
-    Ok(lines(out))
+    let long = lens.iter().filter(|n| **n > limit).count();
+    Ok(table(&[
+        ("Sentences", lens.len().to_string()),
+        ("Words on average", format!("{avg:.1}")),
+        ("Longest", format!("{} words", lens.iter().max().unwrap())),
+        (&format!("Over {limit} words"), long.to_string()),
+    ])
+    .table(&["Words", "Sentence", ""], all.iter().zip(&lens).map(|(s, n)| vec![n.to_string(), s.to_string(), if *n > limit { "too long".into() } else { String::new() }])))
 }
 
 const TRANSITIONS: &[&str] = &[
@@ -1036,7 +1032,7 @@ const TRANSITIONS: &[&str] = &[
     "whereas", "yet", "because", "even though", "in the meantime", "to illustrate", "above all", "after all",
 ];
 
-pub fn transitions(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn transitions(text: &str, _: &mut Opts) -> Result<Output, String> {
     let all = sentences(text);
     let mut found: Vec<(String, usize)> = Vec::new();
     let mut with = 0;
@@ -1055,16 +1051,12 @@ pub fn transitions(text: &str, _: &mut Opts) -> Result<String, String> {
         with += any as usize;
     }
     let share = with as f64 * 100.0 / all.len().max(1) as f64;
-    let mut out = vec![
-        format!("{with} of {} sentences ({share:.0}%) have a transition word; 25% or more reads smoothly.", all.len()),
-        String::new(),
-    ];
     found.sort_by(|a, b| b.1.cmp(&a.1));
-    out.extend(found.iter().map(|(t, n)| format!("{t}\t{n}")));
-    Ok(lines(out))
+    Ok(verdict(share >= 25.0, format!("{with} of {} sentences ({share:.0}%) have a transition word; 25% or more reads smoothly.", all.len()))
+        .table(&["Transition", "Times"], found.iter().map(|(t, n)| vec![t.clone(), n.to_string()])))
 }
 
-pub fn lexical_density(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn lexical_density(text: &str, _: &mut Opts) -> Result<Output, String> {
     let w = words(text);
     if w.is_empty() {
         return Err("There are no words.".into());
@@ -1079,10 +1071,10 @@ pub fn lexical_density(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-pub fn keyword_density(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn keyword_density(text: &str, o: &mut Opts) -> Result<Output, String> {
     let w: Vec<String> = words(text).iter().map(|w| w.to_lowercase()).collect();
     let total = w.len().max(1);
-    let mut out = Vec::new();
+    let mut out = Output::default();
     for n in 1..=3 {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for g in w.windows(n) {
@@ -1096,14 +1088,15 @@ pub fn keyword_density(text: &str, o: &mut Opts) -> Result<String, String> {
         if ranked.is_empty() {
             continue;
         }
-        out.push(format!("{}:", ["Single words", "Two-word phrases", "Three-word phrases"][n - 1]));
-        out.extend(ranked.iter().take(10).map(|(k, c)| format!("  {k}\t{c}\t{:.2}%", *c as f64 * 100.0 * n as f64 / total as f64)));
-        out.push(String::new());
+        out = out.table(
+            &[["Word", "Two-word phrase", "Three-word phrase"][n - 1], "Count", "Density"],
+            ranked.iter().take(10).map(|(k, c)| vec![k.clone(), c.to_string(), format!("{:.2}%", *c as f64 * 100.0 * n as f64 / total as f64)]),
+        );
     }
-    Ok(lines(out).trim_end().to_owned())
+    Ok(out)
 }
 
-pub fn keywords(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn keywords(text: &str, o: &mut Opts) -> Result<Output, String> {
     // Words weighed by frequency and length, without the common ones.
     let mut scores: HashMap<String, f64> = HashMap::new();
     for w in words(text) {
@@ -1115,10 +1108,10 @@ pub fn keywords(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     let mut ranked: Vec<(String, f64)> = scores.into_iter().collect();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(ranked.iter().take(o.number.max(1)).map(|k| k.0.as_str()).collect::<Vec<_>>().join(", "))
+    Ok(super::list(ranked.iter().take(o.number.max(1)).map(|k| k.0.as_str())))
 }
 
-pub fn tokens(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn tokens(text: &str, _: &mut Opts) -> Result<Output, String> {
     let chars = text.chars().count();
     let w = words(text).len();
     let pieces = regex(r"\w+|[^\w\s]").find_iter(text).count();
@@ -1133,7 +1126,7 @@ pub fn tokens(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-pub fn citation(_: &str, o: &mut Opts) -> Result<String, String> {
+pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let authors: Vec<&str> = o.field(0).split(';').map(str::trim).filter(|a| !a.is_empty()).collect();
     let (title, year, source, url) = (o.field(1), o.field(2), o.field(3), o.field(4));
     if title.is_empty() {
@@ -1161,7 +1154,7 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<String, String> {
         }
         t
     };
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "mla" => {
             let names = match authors.as_slice() {
                 [] => String::new(),
@@ -1227,7 +1220,7 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<String, String> {
             };
             format!("{names}({year}). {title}.{}", tail(" "))
         }
-    })
+    }))
 }
 
 // The menus
@@ -1383,10 +1376,10 @@ mod tests {
     use super::super::{Opts, Rng};
     use super::*;
 
-    fn run(f: fn(&str, &mut Opts) -> Result<String, String>, text: &str, mode: &str) -> String {
+    fn run(f: fn(&str, &mut Opts) -> Result<Output, String>, text: &str, mode: &str) -> String {
         let mut rng = Rng(1);
         let mut o = Opts::new(mode, &mut rng);
-        f(text, &mut o).unwrap()
+        f(text, &mut o).unwrap().plain()
     }
 
     #[test]
@@ -1422,7 +1415,7 @@ mod tests {
     fn cleaning() {
         assert_eq!(run(remove_accents, "Ça déjà Straße", ""), "Ca deja Strasse");
         assert_eq!(run(remove_emojis, "hi 👋🏽 there ❤️!", ""), "hi there !");
-        assert_eq!(run(hidden, "a\u{200b}b\u{a0}c", ""), "ab c");
+        assert_eq!(run(hidden, "a\u{200b}b\u{a0}c", ""), "ab c\n\n2 hidden characters found");
         assert_eq!(run(remove_extra_spaces, "  a   b ,c ", "text"), "a b,c");
         assert_eq!(run(sort_numbers, "10, -2, 3.5 and 1,000", "asc"), "-2\n3.5\n10\n1,000");
         assert_eq!(run(upside_down, "ab", ""), "qɐ");
@@ -1433,6 +1426,6 @@ mod tests {
         let out = run(counter, "rose rose tulip fern", "");
         assert!(out.lines().any(|l| l.starts_with("Words:") && l.trim_end().ends_with('4')));
         assert!(out.lines().any(|l| l.starts_with("Unique words:") && l.trim_end().ends_with('3')));
-        assert!(out.contains("1. rose — 2×"));
+        assert!(out.lines().any(|l| l.starts_with("rose ") && l.ends_with(" 2×")), "{out}");
     }
 }

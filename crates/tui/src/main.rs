@@ -66,7 +66,7 @@ fn main() -> ExitCode {
                 }
             };
         }
-        [a] => match address::normalize(a) {
+        [a] => match address::normalize(&address::absolute_file(a)) {
             Ok(u) => u,
             Err(e) => {
                 eprintln!("hyperb-tui: invalid address: {e}");

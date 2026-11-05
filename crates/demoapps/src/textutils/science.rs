@@ -1,9 +1,10 @@
 //! Physics, chemistry, astronomy, electronics, 3D printing, photography and
 //! music.
 
+use super::Output;
 use super::calc::reference;
 use super::math::gcd;
-use super::{Opts, Tool, fmt, table, tool};
+use super::{Opts, Tool, fmt, grid, table, tool};
 
 fn sig(v: f64) -> String {
     if v != 0.0 && (v.abs() >= 1e9 || v.abs() < 1e-4) { format!("{v:.6e}") } else { fmt(v, 6) }
@@ -23,7 +24,7 @@ fn solve_for(o: &Opts, n: usize) -> Result<(usize, Vec<f64>), String> {
 
 const G: f64 = 6.674_30e-11;
 
-fn kinematics(_: &str, o: &mut Opts) -> Result<String, String> {
+fn kinematics(_: &str, o: &mut Opts) -> Result<Output, String> {
     let u = o.num(0)?;
     let a = o.num(1)?;
     let t = o.num(2)?;
@@ -34,7 +35,7 @@ fn kinematics(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn projectile(_: &str, o: &mut Opts) -> Result<String, String> {
+fn projectile(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let angle = o.num(1)?.to_radians();
     let h = o.opt_num(2)?.unwrap_or(0.0);
@@ -49,17 +50,17 @@ fn projectile(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn newton(_: &str, o: &mut Opts) -> Result<String, String> {
+fn newton(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (i, v) = solve_for(o, 3)?;
     let (m, a, f) = (v[0], v[1], v[2]);
-    Ok(match i {
-        0 => format!("Mass = {} kg", sig(f / a)),
-        1 => format!("Acceleration = {} m/s²", sig(f / m)),
-        _ => format!("Force = {} N", sig(m * a)),
-    })
+    Ok(table(&[match i {
+        0 => ("Mass", format!("{} kg", sig(f / a))),
+        1 => ("Acceleration", format!("{} m/s²", sig(f / m))),
+        _ => ("Force", format!("{} N", sig(m * a))),
+    }]))
 }
 
-fn energy(_: &str, o: &mut Opts) -> Result<String, String> {
+fn energy(_: &str, o: &mut Opts) -> Result<Output, String> {
     let m = o.positive(0)?;
     let v = o.opt_num(1)?.unwrap_or(0.0);
     let h = o.opt_num(2)?.unwrap_or(0.0);
@@ -73,7 +74,7 @@ fn energy(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn momentum(_: &str, o: &mut Opts) -> Result<String, String> {
+fn momentum(_: &str, o: &mut Opts) -> Result<Output, String> {
     let m = o.positive(0)?;
     let v = o.num(1)?;
     let t = o.opt_num(2)?;
@@ -84,13 +85,13 @@ fn momentum(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn gravity(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gravity(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (m1, m2, r) = (o.positive(0)?, o.positive(1)?, o.positive(2)?);
     let f = G * m1 * m2 / (r * r);
     Ok(table(&[("Force", format!("{} N", sig(f))), ("Acceleration of the second", format!("{} m/s²", sig(f / m2)))]))
 }
 
-fn electric_field(_: &str, o: &mut Opts) -> Result<String, String> {
+fn electric_field(_: &str, o: &mut Opts) -> Result<Output, String> {
     let q = o.num(0)?;
     let r = o.positive(1)?;
     let k = 8.987_551_792_3e9;
@@ -102,7 +103,7 @@ fn electric_field(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn wave(_: &str, o: &mut Opts) -> Result<String, String> {
+fn wave(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (i, v) = solve_for(o, 3)?;
     let (f, l, s) = (v[0], v[1], v[2]);
     let (f, l, s) = match i {
@@ -118,7 +119,7 @@ fn wave(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn work(_: &str, o: &mut Opts) -> Result<String, String> {
+fn work(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.num(0)?;
     let d = o.num(1)?;
     let angle = o.opt_num(2)?.unwrap_or(0.0).to_radians();
@@ -244,19 +245,17 @@ pub fn molar_mass(formula: &str) -> Result<f64, String> {
     Ok(parse_formula(formula)?.iter().map(|(e, n)| element(e).unwrap().1 * n).sum())
 }
 
-fn molecular_weight(_: &str, o: &mut Opts) -> Result<String, String> {
+fn molecular_weight(_: &str, o: &mut Opts) -> Result<Output, String> {
     let atoms = parse_formula(o.field(0))?;
     let total: f64 = atoms.iter().map(|(e, n)| element(e).unwrap().1 * n).sum();
-    let mut out = vec![format!("Molar mass: {} g/mol", fmt(total, 4)), String::new()];
-    out.push(format!("{:<4} {:>6} {:>12} {:>9}", "", "Atoms", "Mass", "Share"));
-    for (e, n) in &atoms {
+    let rows = atoms.iter().map(|(e, n)| {
         let m = element(e).unwrap().1 * n;
-        out.push(format!("{e:<4} {:>6} {:>12} {:>8.3}%", fmt(*n, 2), fmt(m, 4), m / total * 100.0));
-    }
-    Ok(out.join("\n"))
+        vec![e.clone(), fmt(*n, 2), fmt(m, 4), format!("{:.3}%", m / total * 100.0)]
+    });
+    Ok(table(&[("Molar mass", format!("{} g/mol", fmt(total, 4)))]).table(&["Element", "Atoms", "Mass", "Share"], rows))
 }
 
-fn empirical(text: &str, _: &mut Opts) -> Result<String, String> {
+fn empirical(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut moles = Vec::new();
     for part in text.split([',', ';', '\n']).map(str::trim).filter(|p| !p.is_empty()) {
         let (sym, pct): (String, String) = part.chars().partition(|c| c.is_alphabetic());
@@ -353,7 +352,7 @@ fn balance_coefficients(sides: &[Vec<Vec<(String, f64)>>; 2]) -> Result<Vec<i128
     Ok(ints)
 }
 
-fn balance(_: &str, o: &mut Opts) -> Result<String, String> {
+fn balance(_: &str, o: &mut Opts) -> Result<Output, String> {
     let eq = o.field(0).replace("<=>", "=").replace("->", "=").replace('→', "=").replace("⟶", "=");
     let (l, r) = eq.split_once('=').ok_or("Write a reaction such as H2 + O2 = H2O.")?;
     let names: [Vec<String>; 2] = [l, r].map(|side| side.split(" + ").map(|s| s.trim().trim_start_matches(|c: char| c.is_ascii_digit()).to_owned()).filter(|s| !s.is_empty()).collect());
@@ -364,10 +363,10 @@ fn balance(_: &str, o: &mut Opts) -> Result<String, String> {
     let k = balance_coefficients(&parsed)?;
     let side = |names: &[String], k: &[i128]| names.iter().zip(k).map(|(n, k)| if *k == 1 { n.clone() } else { format!("{k}{n}") }).collect::<Vec<_>>().join(" + ");
     let n0 = names[0].len();
-    Ok(format!("{} → {}", side(&names[0], &k[..n0]), side(&names[1], &k[n0..])))
+    Ok(table(&[("Balanced", format!("{} → {}", side(&names[0], &k[..n0]), side(&names[1], &k[n0..])))]))
 }
 
-fn molarity(_: &str, o: &mut Opts) -> Result<String, String> {
+fn molarity(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mass = o.positive(0)?;
     let mm = match super::parse_number(o.field(1)) {
         Some(v) => v,
@@ -382,7 +381,7 @@ fn molarity(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn dilution(_: &str, o: &mut Opts) -> Result<String, String> {
+fn dilution(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (i, v) = solve_for(o, 4)?;
     let (c1, v1, c2, v2) = (v[0], v[1], v[2], v[3]);
     let (label, value) = match i {
@@ -398,19 +397,19 @@ fn dilution(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn gas_law(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gas_law(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (i, v) = solve_for(o, 4)?;
     let r = 0.082057366;
     let (p, vol, n, t) = (v[0], v[1], v[2], v[3]);
-    Ok(match i {
-        0 => format!("P = {} atm", sig(n * r * t / vol)),
-        1 => format!("V = {} L", sig(n * r * t / p)),
-        2 => format!("n = {} mol", sig(p * vol / (r * t))),
-        _ => format!("T = {} K ({} °C)", sig(p * vol / (n * r)), fmt(p * vol / (n * r) - 273.15, 2)),
-    })
+    Ok(table(&[match i {
+        0 => ("Pressure", format!("{} atm", sig(n * r * t / vol))),
+        1 => ("Volume", format!("{} L", sig(n * r * t / p))),
+        2 => ("Amount", format!("{} mol", sig(p * vol / (r * t)))),
+        _ => ("Temperature", format!("{} K ({} °C)", sig(p * vol / (n * r)), fmt(p * vol / (n * r) - 273.15, 2))),
+    }]))
 }
 
-fn ph(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ph(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let ph = match o.mode {
         "h" => -v.log10(),
@@ -431,7 +430,7 @@ fn ph(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn buffer(_: &str, o: &mut Opts) -> Result<String, String> {
+fn buffer(_: &str, o: &mut Opts) -> Result<Output, String> {
     let pka = o.num(0)?;
     let base = o.positive(1)?;
     let acid = o.positive(2)?;
@@ -521,7 +520,7 @@ fn place(z: usize) -> (usize, Option<usize>, &'static str) {
     (period, group, category)
 }
 
-fn periodic(_: &str, o: &mut Opts) -> Result<String, String> {
+fn periodic(_: &str, o: &mut Opts) -> Result<Output, String> {
     let z = find_element(o.field(0))?;
     let (sym, name, mass) = ELEMENTS[z - 1];
     let (period, group, category) = place(z);
@@ -536,7 +535,7 @@ fn periodic(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn electrons(_: &str, o: &mut Opts) -> Result<String, String> {
+fn electrons(_: &str, o: &mut Opts) -> Result<Output, String> {
     let z = find_element(o.field(0))?;
     let config = electron_config(z);
     let mut valence = 0;
@@ -551,7 +550,7 @@ fn electrons(_: &str, o: &mut Opts) -> Result<String, String> {
 
 // Astronomy
 
-fn angular_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn angular_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let size = o.positive(0)?;
     let d = o.positive(1)?;
     let rad = 2.0 * (size / (2.0 * d)).atan();
@@ -563,7 +562,7 @@ fn angular_size(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn magnitude(_: &str, o: &mut Opts) -> Result<String, String> {
+fn magnitude(_: &str, o: &mut Opts) -> Result<Output, String> {
     let m_abs = o.num(0)?;
     let d = o.positive(1)? * if o.mode == "ly" { 0.306601 } else { 1.0 };
     let m = m_abs + 5.0 * (d.log10() - 1.0);
@@ -574,7 +573,7 @@ fn magnitude(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn drake(_: &str, o: &mut Opts) -> Result<String, String> {
+fn drake(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n: f64 = (0..7).map(|i| o.num(i)).collect::<Result<Vec<_>, _>>()?.iter().product();
     Ok(table(&[("Civilizations we could detect", sig(n))]))
 }
@@ -586,7 +585,7 @@ const BODIES: &[(&str, &str, f64, f64)] = &[
     ("sun", "the Sun", 1.989e30, 6.957e8), ("custom", "your body", 0.0, 0.0),
 ];
 
-fn escape(_: &str, o: &mut Opts) -> Result<String, String> {
+fn escape(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = BODIES.iter().find(|b| b.0 == o.mode).unwrap_or(&BODIES[0]);
     let (m, r) = if b.0 == "custom" { (o.positive(0)?, o.positive(1)?) } else { (b.2, b.3) };
     let v = (2.0 * G * m / r).sqrt();
@@ -597,7 +596,7 @@ fn escape(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn orbit(_: &str, o: &mut Opts) -> Result<String, String> {
+fn orbit(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = o.positive(0)? * if o.choice(1) == "au" { 1.495978707e11 } else { 1000.0 };
     let b = BODIES.iter().find(|b| b.0 == o.mode).unwrap_or(&BODIES[0]);
     let m = if b.0 == "custom" { o.positive(1)? } else { b.2 };
@@ -609,7 +608,7 @@ fn orbit(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn planet_age(_: &str, o: &mut Opts) -> Result<String, String> {
+fn planet_age(_: &str, o: &mut Opts) -> Result<Output, String> {
     let born = o.date(0)?;
     let days = (o.date(1)? - born) as f64;
     let years = [("Mercury", 87.969), ("Venus", 224.701), ("Earth", 365.256), ("Mars", 686.980), ("Jupiter", 4332.59), ("Saturn", 10759.22), ("Uranus", 30688.5), ("Neptune", 60182.0)];
@@ -617,7 +616,7 @@ fn planet_age(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn redshift(_: &str, o: &mut Opts) -> Result<String, String> {
+fn redshift(_: &str, o: &mut Opts) -> Result<Output, String> {
     let z = match o.mode {
         "wavelengths" => o.positive(1)? / o.positive(0)? - 1.0,
         _ => o.num(0)?,
@@ -632,7 +631,7 @@ fn redshift(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn space_travel(_: &str, o: &mut Opts) -> Result<String, String> {
+fn space_travel(_: &str, o: &mut Opts) -> Result<Output, String> {
     let ly = 9.4607304725808e12;
     let d = o.positive(0)? * if o.choice(1) == "au" { 1.495978707e8 } else { ly };
     let speed = o.positive(1)?;
@@ -649,7 +648,7 @@ fn space_travel(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn telescope(_: &str, o: &mut Opts) -> Result<String, String> {
+fn telescope(_: &str, o: &mut Opts) -> Result<Output, String> {
     let scope = o.positive(0)?;
     let eyepiece = o.positive(1)?;
     let afov = o.opt_num(2)?.unwrap_or(52.0);
@@ -679,13 +678,13 @@ Leonids           Nov 17        15         55P/Tempel–Tuttle
 Geminids          Dec 13–14     150        3200 Phaethon
 Ursids            Dec 22        10         8P/Tuttle";
 
-fn showers(_: &str, o: &mut Opts) -> Result<String, String> {
+fn showers(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(SHOWERS, o.field(0))
 }
 
 // Electronics and engineering
 
-fn ohm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ohm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let vals: Vec<Option<f64>> = (0..4).map(|i| o.opt_num(i)).collect::<Result<_, _>>()?;
     let known: Vec<usize> = (0..4).filter(|i| vals[*i].is_some()).collect();
     if known.len() != 2 {
@@ -735,7 +734,7 @@ pub fn si(v: f64, unit: &str) -> String {
 
 const COLORS: [&str; 10] = ["black", "brown", "red", "orange", "yellow", "green", "blue", "violet", "grey", "white"];
 
-fn resistor(_: &str, o: &mut Opts) -> Result<String, String> {
+fn resistor(_: &str, o: &mut Opts) -> Result<Output, String> {
     let tolerance = |c: &str| match c {
         "brown" => Some("±1%"),
         "red" => Some("±2%"),
@@ -764,7 +763,7 @@ fn resistor(_: &str, o: &mut Opts) -> Result<String, String> {
             _ => return Err("That is outside the color code.".into()),
         };
         let bands: Vec<String> = ds.iter().map(|d| COLORS[*d].to_owned()).chain([mult, "gold (±5%)".into()]).collect();
-        return Ok(bands.join(" – "));
+        return Ok(table(&[("Bands", bands.join(" – "))]));
     }
     let bands: Vec<String> = o.field(0).to_lowercase().replace([',', '-'], " ").split_whitespace().map(|b| b.replace("gray", "grey")).collect();
     if !(3..=6).contains(&bands.len()) {
@@ -815,7 +814,7 @@ pub fn parse_si(s: &str) -> Option<f64> {
     t.parse().ok()
 }
 
-fn smd(_: &str, o: &mut Opts) -> Result<String, String> {
+fn smd(_: &str, o: &mut Opts) -> Result<Output, String> {
     let code = o.field(0).to_uppercase();
     const EIA96: [u32; 96] = [
         100, 102, 105, 107, 110, 113, 115, 118, 121, 124, 127, 130, 133, 137, 140, 143, 147, 150, 154, 158, 162, 165, 169, 174, 178, 182, 187, 191, 196,
@@ -847,10 +846,10 @@ fn smd(_: &str, o: &mut Opts) -> Result<String, String> {
     } else {
         return Err("Write a code such as 472, 4R7, 1002 or 01C.".into());
     };
-    Ok(si(v, "Ω"))
+    Ok(table(&[("Resistance", si(v, "Ω"))]))
 }
 
-fn capacitor(_: &str, o: &mut Opts) -> Result<String, String> {
+fn capacitor(_: &str, o: &mut Opts) -> Result<Output, String> {
     let code = o.field(0).trim().to_string();
     let pf = if code.len() == 3 && code.chars().all(|c| c.is_ascii_digit()) {
         let (d, e) = code.split_at(2);
@@ -885,7 +884,7 @@ fn nearest_e12(v: f64, up: bool) -> f64 {
     }
 }
 
-fn led(_: &str, o: &mut Opts) -> Result<String, String> {
+fn led(_: &str, o: &mut Opts) -> Result<Output, String> {
     let supply = o.positive(0)?;
     let vf = o.positive(1)?;
     let ma = o.positive(2)?;
@@ -904,7 +903,7 @@ fn led(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn divider(_: &str, o: &mut Opts) -> Result<String, String> {
+fn divider(_: &str, o: &mut Opts) -> Result<Output, String> {
     let vin = o.positive(0)?;
     let r1 = parse_si(o.field(1)).ok_or("Write R1 such as 10k.")?;
     match parse_si(o.field(2)) {
@@ -924,7 +923,7 @@ fn divider(_: &str, o: &mut Opts) -> Result<String, String> {
     }
 }
 
-fn timer555(_: &str, o: &mut Opts) -> Result<String, String> {
+fn timer555(_: &str, o: &mut Opts) -> Result<Output, String> {
     let c = parse_si(o.field(2)).ok_or("Write C such as 10u or 100n.")?;
     let r1 = parse_si(o.field(0)).ok_or("Write R1 such as 1k.")?;
     if o.mode == "mono" {
@@ -943,7 +942,7 @@ fn timer555(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn awg(_: &str, o: &mut Opts) -> Result<String, String> {
+fn awg(_: &str, o: &mut Opts) -> Result<Output, String> {
     let gauge = if o.mode == "mm2" {
         let a = o.positive(0)?;
         let d = (a * 4.0 / std::f64::consts::PI).sqrt();
@@ -967,7 +966,7 @@ fn awg(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn gear(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gear(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = o.positive(0)?;
     let b = o.positive(1)?;
     let rpm = o.opt_num(2)?;
@@ -983,7 +982,7 @@ fn gear(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn belt(_: &str, o: &mut Opts) -> Result<String, String> {
+fn belt(_: &str, o: &mut Opts) -> Result<Output, String> {
     let d1 = o.positive(0)?;
     let d2 = o.positive(1)?;
     let c = o.positive(2)?;
@@ -992,7 +991,7 @@ fn belt(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Belt length", fmt(len, 2)), ("Wrap on the small pulley", format!("{}°", fmt(wrap, 1))), ("Speed ratio", fmt(d1.max(d2) / d1.min(d2), 3))]))
 }
 
-fn rotation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn rotation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let d = o.positive(0)?;
     let v = o.positive(1)?;
     Ok(if o.mode == "rpm" {
@@ -1002,7 +1001,7 @@ fn rotation(_: &str, o: &mut Opts) -> Result<String, String> {
     })
 }
 
-fn thread(_: &str, o: &mut Opts) -> Result<String, String> {
+fn thread(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let (pitch, tpi) = if o.mode == "tpi" { (25.4 / v, v) } else { (v, 25.4 / v) };
     let d = o.opt_num(1)?;
@@ -1013,7 +1012,7 @@ fn thread(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn torque(_: &str, o: &mut Opts) -> Result<String, String> {
+fn torque(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.num(0)?;
     let arm = o.num(1)?;
     let nm = f * arm;
@@ -1024,7 +1023,7 @@ fn torque(_: &str, o: &mut Opts) -> Result<String, String> {
 
 const MATERIALS: super::Menu = &[("1.24", "PLA"), ("1.27", "PETG"), ("1.04", "ABS"), ("1.07", "ASA"), ("1.21", "TPU"), ("1.14", "Nylon"), ("1.20", "PC")];
 
-fn filament(_: &str, o: &mut Opts) -> Result<String, String> {
+fn filament(_: &str, o: &mut Opts) -> Result<Output, String> {
     let density: f64 = o.mode.parse().unwrap_or(1.24);
     let d = o.positive(1)?;
     let area_cm2 = std::f64::consts::PI * (d / 20.0).powi(2);
@@ -1037,7 +1036,7 @@ fn filament(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn infill(_: &str, o: &mut Opts) -> Result<String, String> {
+fn infill(_: &str, o: &mut Opts) -> Result<Output, String> {
     let volume = o.positive(0)?;
     let infill = o.num(1)? / 100.0;
     let shell = o.opt_num(2)?.unwrap_or(25.0) / 100.0;
@@ -1046,7 +1045,7 @@ fn infill(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Estimated weight", format!("{} g", fmt(volume * solid * density, 1))), ("Solid share", format!("{}%", fmt(solid * 100.0, 1)))]))
 }
 
-fn layer_height(_: &str, o: &mut Opts) -> Result<String, String> {
+fn layer_height(_: &str, o: &mut Opts) -> Result<Output, String> {
     let nozzle = o.positive(0)?;
     let step = o.opt_num(1)?.unwrap_or(0.04);
     let snap = |h: f64| (h / step).round() * step;
@@ -1059,7 +1058,7 @@ fn layer_height(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn model_scale(_: &str, o: &mut Opts) -> Result<String, String> {
+fn model_scale(_: &str, o: &mut Opts) -> Result<Output, String> {
     let dims: Vec<f64> = (0..3).map(|i| o.positive(i)).collect::<Result<_, _>>()?;
     let target = o.positive(3)?;
     let axis = match o.mode { "y" => 1, "z" => 2, _ => 0 };
@@ -1071,7 +1070,7 @@ fn model_scale(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn flow_rate(_: &str, o: &mut Opts) -> Result<String, String> {
+fn flow_rate(_: &str, o: &mut Opts) -> Result<Output, String> {
     let h = o.positive(0)?;
     let w = o.positive(1)?;
     let speed = o.positive(2)?;
@@ -1084,7 +1083,7 @@ fn flow_rate(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn print_cost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn print_cost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let grams = o.positive(0)?;
     let per_kg = o.num(1)?;
     let hours = o.num(2)?;
@@ -1101,7 +1100,7 @@ fn print_cost(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn resin(_: &str, o: &mut Opts) -> Result<String, String> {
+fn resin(_: &str, o: &mut Opts) -> Result<Output, String> {
     let ml = o.positive(0)?;
     let price = o.num(1)?;
     let supports = o.opt_num(2)?.unwrap_or(15.0) / 100.0;
@@ -1109,7 +1108,7 @@ fn resin(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Resin", format!("{} ml", fmt(total, 1))), ("Cost", fmt(total / 1000.0 * price, 2)), ("Prints a litre", fmt((1000.0 / total).floor(), 0))]))
 }
 
-fn shrinkage(_: &str, o: &mut Opts) -> Result<String, String> {
+fn shrinkage(_: &str, o: &mut Opts) -> Result<Output, String> {
     let shrink: f64 = o.mode.parse().unwrap_or(0.5);
     let size = o.opt_num(0)?;
     let k = 1.0 / (1.0 - shrink / 100.0);
@@ -1120,7 +1119,7 @@ fn shrinkage(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn temp_tower(_: &str, o: &mut Opts) -> Result<String, String> {
+fn temp_tower(_: &str, o: &mut Opts) -> Result<Output, String> {
     let start = o.num(0)?;
     let end = o.num(1)?;
     let step = o.positive(2)?.abs();
@@ -1130,15 +1129,15 @@ fn temp_tower(_: &str, o: &mut Opts) -> Result<String, String> {
         return Err("That makes more than 40 blocks.".into());
     }
     let dir = if end < start { -1.0 } else { 1.0 };
-    let mut out = vec![format!("{:>6}  {:>8}  G-code", "Block", "From Z")];
+    let mut out = Vec::new();
     for i in 0..n {
         let t = start + dir * step * i as f64;
-        out.push(format!("{:>6}  {:>8}  M104 S{}", i + 1, fmt(height * i as f64, 2), fmt(t, 0)));
+        out.push(vec![(i + 1).to_string(), format!("{} mm", fmt(height * i as f64, 2)), format!("M104 S{}", fmt(t, 0))]);
     }
-    Ok(out.join("\n"))
+    Ok(grid(&["Block", "From Z", "G-code"], out))
 }
 
-fn bed_check(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bed_check(_: &str, o: &mut Opts) -> Result<Output, String> {
     let m: Vec<f64> = (0..3).map(|i| o.positive(i)).collect::<Result<_, _>>()?;
     let b: Vec<f64> = (3..6).map(|i| o.positive(i)).collect::<Result<_, _>>()?;
     let fits = m[0] <= b[0] && m[1] <= b[1] && m[2] <= b[2];
@@ -1188,15 +1187,15 @@ M6       8.0 mm                   6.6 mm           5.0 mm
 M8       9.7 mm                   9.0 mm           6.8 mm
 Hole depth: the insert's length plus 1 mm.";
 
-fn retraction(_: &str, o: &mut Opts) -> Result<String, String> {
+fn retraction(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(RETRACTION, o.field(0))
 }
 
-fn tolerances(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tolerances(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(TOLERANCES, o.field(0))
 }
 
-fn inserts(_: &str, o: &mut Opts) -> Result<String, String> {
+fn inserts(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(INSERTS, o.field(0))
 }
 
@@ -1204,7 +1203,7 @@ fn inserts(_: &str, o: &mut Opts) -> Result<String, String> {
 
 const SENSORS: super::Menu = &[("1", "Full frame"), ("1.5", "APS-C (Nikon, Sony, Fuji)"), ("1.6", "APS-C (Canon)"), ("2", "Micro Four Thirds"), ("2.7", "1 inch"), ("5.6", "Phone (1/2.3\")"), ("0.79", "Medium format 44×33")];
 
-fn dof(_: &str, o: &mut Opts) -> Result<String, String> {
+fn dof(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.positive(0)?;
     let n = o.positive(1)?;
     let s = o.positive(2)? * 1000.0;
@@ -1223,7 +1222,7 @@ fn dof(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn hyperfocal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn hyperfocal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.positive(0)?;
     let n = o.positive(1)?;
     let crop: f64 = o.mode.parse().unwrap_or(1.0);
@@ -1243,22 +1242,24 @@ fn show_shutter(t: f64) -> String {
     if t >= 1.0 { format!("{}s", fmt(t, 1)) } else { format!("1/{}", fmt((1.0 / t).round(), 0)) }
 }
 
-fn exposure(_: &str, o: &mut Opts) -> Result<String, String> {
+fn exposure(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.positive(0)?;
     let t = shutter(o.field(1)).filter(|t| *t > 0.0).ok_or("Write the shutter speed as 1/125 or 2.")?;
     let iso = o.positive(2)?;
     let ev = (n * n / t).log2() - (iso / 100.0).log2();
-    let mut out = vec![format!("EV {} (at ISO 100: {})", fmt(ev, 2), fmt((n * n / t).log2(), 2)), String::new(), "The same exposure:".to_owned()];
+    let mut out = Vec::new();
     for stop in [1.4, 2.0, 2.8, 4.0, 5.6, 8.0, 11.0, 16.0, 22.0] {
         let t2 = t * (stop * stop) / (n * n);
         if (1.0 / 8000.0..=30.0).contains(&t2) {
-            out.push(format!("  f/{stop}  {}  ISO {}", show_shutter(t2), fmt(iso, 0)));
+            out.push(vec![format!("f/{stop}"), show_shutter(t2), fmt(iso, 0)]);
         }
     }
-    Ok(out.join("\n"))
+    Ok(table(&[("Exposure value", fmt(ev, 2)), ("At ISO 100", fmt((n * n / t).log2(), 2))])
+        .note("The same exposure:")
+        .table(&["Aperture", "Shutter", "ISO"], out))
 }
 
-fn flash(_: &str, o: &mut Opts) -> Result<String, String> {
+fn flash(_: &str, o: &mut Opts) -> Result<Output, String> {
     let gn = o.positive(0)?;
     let iso = o.positive(1)?;
     let n = o.positive(2)?;
@@ -1266,7 +1267,7 @@ fn flash(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Flash distance", format!("{} m", fmt(effective / n, 2))), ("Guide number at this ISO", fmt(effective, 1))]))
 }
 
-fn focal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn focal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.positive(0)?;
     let crop: f64 = o.mode.parse().unwrap_or(1.5);
     let n = o.opt_num(1)?;
@@ -1279,7 +1280,7 @@ fn focal(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn image_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn image_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mp = o.positive(0)?;
     let bits = o.opt_num(1)?.unwrap_or(14.0);
     let raw = mp * 1e6 * bits / 8.0;
@@ -1292,7 +1293,7 @@ fn image_size(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn megapixels(_: &str, o: &mut Opts) -> Result<String, String> {
+fn megapixels(_: &str, o: &mut Opts) -> Result<Output, String> {
     let w = o.positive(0)?;
     let h = o.positive(1)?;
     let g = gcd(w as u128, h as u128).max(1) as f64;
@@ -1304,14 +1305,14 @@ fn megapixels(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn nd_filter(_: &str, o: &mut Opts) -> Result<String, String> {
+fn nd_filter(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = shutter(o.field(0)).filter(|t| *t > 0.0).ok_or("Write the shutter speed as 1/125 or 2.")?;
     let stops: f64 = o.mode.parse().unwrap_or(10.0);
     let t2 = t * 2f64.powf(stops);
     Ok(table(&[("New exposure", if t2 >= 60.0 { super::dates::duration_words(t2) } else { show_shutter(t2) }), ("Filter", format!("ND{} ({} stops)", fmt(2f64.powf(stops), 0), stops))]))
 }
 
-fn dpi(_: &str, o: &mut Opts) -> Result<String, String> {
+fn dpi(_: &str, o: &mut Opts) -> Result<Output, String> {
     let px = o.positive(0)?;
     let v = o.positive(1)?;
     Ok(if o.mode == "size" {
@@ -1321,7 +1322,7 @@ fn dpi(_: &str, o: &mut Opts) -> Result<String, String> {
     })
 }
 
-fn star_trails(_: &str, o: &mut Opts) -> Result<String, String> {
+fn star_trails(_: &str, o: &mut Opts) -> Result<Output, String> {
     let f = o.positive(0)?;
     let crop: f64 = o.mode.parse().unwrap_or(1.0);
     let n = o.opt_num(1)?.unwrap_or(2.8);
@@ -1335,7 +1336,7 @@ fn star_trails(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn timelapse(_: &str, o: &mut Opts) -> Result<String, String> {
+fn timelapse(_: &str, o: &mut Opts) -> Result<Output, String> {
     let event = o.positive(0)? * 60.0;
     let interval = o.positive(1)?;
     let fps = o.positive(2)?;
@@ -1349,7 +1350,7 @@ fn timelapse(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn aspect_crop(_: &str, o: &mut Opts) -> Result<String, String> {
+fn aspect_crop(_: &str, o: &mut Opts) -> Result<Output, String> {
     let w = o.positive(0)?;
     let h = o.positive(1)?;
     let (a, b) = o.field(2).split_once(':').ok_or("Write the ratio as 16:9.")?;
@@ -1389,7 +1390,7 @@ fn note_index(s: &str) -> Option<(i32, Option<i32>)> {
     Some(((base + acc).rem_euclid(12), octave.parse().ok()))
 }
 
-fn note_frequency(_: &str, o: &mut Opts) -> Result<String, String> {
+fn note_frequency(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a4 = o.opt_num(1)?.unwrap_or(440.0);
     let q = o.field(0);
     let midi = if let Some(hz) = super::parse_number(q) {
@@ -1437,12 +1438,13 @@ fn uses_flats(root: i32, minor: bool) -> bool {
     matches!(major_root, 5 | 10 | 3 | 8 | 1 | 6)
 }
 
-fn scale(_: &str, o: &mut Opts) -> Result<String, String> {
+fn scale(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (root, _) = note_index(o.field(0)).ok_or("Write a root note such as C or F#.")?;
     let (_, name, steps) = SCALES.iter().find(|s| s.0 == o.mode).unwrap_or(&SCALES[0]);
     let flats = o.field(0).contains(['b', '♭']) || uses_flats(root, steps.get(2) == Some(&3));
     let notes: Vec<&str> = steps.iter().map(|s| spell(root + s, flats)).collect();
-    let mut out = vec![format!("{} {name}: {}", spell(root, flats), notes.join(" "))];
+    let title = format!("{} {name}", spell(root, flats));
+    let mut out = vec![(title.as_str(), notes.join(" "))];
     if steps.len() == 7 {
         let quality = |i: usize| {
             let third = (steps[(i + 2) % 7] - steps[i]).rem_euclid(12);
@@ -1456,12 +1458,12 @@ fn scale(_: &str, o: &mut Opts) -> Result<String, String> {
             }
         };
         let chords: Vec<String> = (0..7).map(|i| format!("{}{}", notes[i], quality(i))).collect();
-        out.push(format!("Chords: {}", chords.join("  ")));
+        out.push(("Chords", chords.join("  ")));
     }
-    Ok(out.join("\n"))
+    Ok(table(&out))
 }
 
-fn progression(_: &str, o: &mut Opts) -> Result<String, String> {
+fn progression(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (root, _) = note_index(o.field(0)).ok_or("Write a key such as G or Am.")?;
     let minor = o.field(0).trim_end().ends_with('m');
     let steps: &[i32] = if minor { &[0, 2, 3, 5, 7, 8, 10] } else { &[0, 2, 4, 5, 7, 9, 11] };
@@ -1478,10 +1480,10 @@ fn progression(_: &str, o: &mut Opts) -> Result<String, String> {
         let suffix = if dim { "dim" } else if upper { "" } else { "m" };
         out.push(format!("{}{suffix}{}", spell(root + steps[deg], flats), if seventh { "7" } else { "" }));
     }
-    Ok(out.join(" – "))
+    Ok(table(&[("Chords", out.join(" – "))]))
 }
 
-fn transpose(text: &str, o: &mut Opts) -> Result<String, String> {
+fn transpose(text: &str, o: &mut Opts) -> Result<Output, String> {
     let k = o.num(0)? as i32;
     let flats = o.flag;
     let re = regex_lite::Regex::new(r"\b([A-G])([#b♯♭]?)((?:maj|min|m|dim|aug|sus|add)?\d*(?:/[A-G][#b♯♭]?)?)").unwrap();
@@ -1511,10 +1513,10 @@ fn transpose(text: &str, o: &mut Opts) -> Result<String, String> {
             .into_owned()
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n").into())
 }
 
-fn bpm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bpm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = o.positive(0)?;
     let beat = 60000.0 / b;
     let rows: Vec<(&str, String)> = [("Whole note", 4.0), ("Half note", 2.0), ("Quarter note", 1.0), ("Eighth note", 0.5), ("Sixteenth note", 0.25), ("Thirty-second note", 0.125)]
@@ -1525,7 +1527,7 @@ fn bpm(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn tap_bpm(text: &str, _: &mut Opts) -> Result<String, String> {
+fn tap_bpm(text: &str, _: &mut Opts) -> Result<Output, String> {
     let times: Vec<f64> = super::calc::numbers(text)?;
     if times.len() < 2 {
         return Err("Write at least two beat times in seconds, or one interval per line.".into());

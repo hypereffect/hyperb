@@ -2,7 +2,8 @@
 //! status codes, MIME types, validators, meta tags, CIDR maths, permissions
 //! and the lookup tables that are handy next to them.
 
-use super::{Opts, Tool, table, tool};
+use super::Output;
+use super::{Opts, Tool, table, tool, verdict};
 use base64::Engine;
 use regex_lite::Regex;
 use std::net::{IpAddr, Ipv4Addr};
@@ -380,7 +381,7 @@ fn encode(s: &str) -> String {
     out
 }
 
-fn http_status(_: &str, o: &mut Opts) -> Result<String, String> {
+fn http_status(_: &str, o: &mut Opts) -> Result<Output, String> {
     let code = o.int(0)?;
     let code = u16::try_from(code).map_err(|_| "A status code is between 100 and 599.".to_owned())?;
     let (code, reason, about) = status(code).ok_or_else(|| format!("{code} is not a standard HTTP status code."))?;
@@ -392,7 +393,7 @@ fn http_status(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn mime_type(_: &str, o: &mut Opts) -> Result<String, String> {
+fn mime_type(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
     let (ext, mime, kind) = mime(key).ok_or_else(|| format!("“{key}” is not in the table; try an extension such as png or a type such as image/png."))?;
     Ok(table(&[
@@ -403,7 +404,7 @@ fn mime_type(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn jwt(text: &str, _: &mut Opts) -> Result<String, String> {
+fn jwt(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut parts = text.trim().split('.');
     let (Some(header), Some(payload), Some(signature)) = (parts.next(), parts.next(), parts.next()) else {
         return Err("A JWT has three dot-separated parts.".into());
@@ -417,16 +418,20 @@ fn jwt(text: &str, _: &mut Opts) -> Result<String, String> {
             .map(|v| String::from_utf8_lossy(&v).into_owned())
             .map_err(|_| "A part is not valid base64url.".to_owned())
     };
-    Ok(format!(
-        "Header\n{}\n\nPayload\n{}\n\nSignature\n{} ({} bytes)",
-        decode(header)?,
-        decode(payload)?,
-        signature,
-        signature.len() * 3 / 4
-    ))
+    // Pretty JSON when a part is JSON, as it should be.
+    let pretty = |s: String| match hypereffect::serde_json::from_str::<hypereffect::Value>(&s) {
+        Ok(v) => super::code::json_text(&v, 2),
+        Err(_) => s,
+    };
+    Ok(Output::default()
+        .note("Header")
+        .code(pretty(decode(header)?))
+        .note("Payload")
+        .code(pretty(decode(payload)?))
+        .facts(&[("Signature", format!("{signature} ({} bytes)", signature.len() * 3 / 4))]))
 }
 
-fn uuid(_: &str, o: &mut Opts) -> Result<String, String> {
+fn uuid(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
@@ -443,10 +448,10 @@ fn uuid(_: &str, o: &mut Opts) -> Result<String, String> {
         );
         out.push(if o.flag { s.to_uppercase() } else { s });
     }
-    Ok(out.join("\n"))
+    Ok(if n == 1 { table(&[("UUID", out.remove(0))]) } else { super::list(out) })
 }
 
-fn password(_: &str, o: &mut Opts) -> Result<String, String> {
+fn password(_: &str, o: &mut Opts) -> Result<Output, String> {
     let len = o.number.max(1);
     let mut chars: Vec<u8> = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec();
     if o.check(0) {
@@ -466,10 +471,10 @@ fn password(_: &str, o: &mut Opts) -> Result<String, String> {
     for _ in 0..len {
         out.push(chars[o.rng.below(chars.len())] as char);
     }
-    Ok(out)
+    Ok(table(&[("Password", out)]))
 }
 
-fn cron(text: &str, _: &mut Opts) -> Result<String, String> {
+fn cron(text: &str, _: &mut Opts) -> Result<Output, String> {
     let fields: Vec<&str> = text.split_whitespace().collect();
     if fields.len() != 5 {
         return Err("A cron expression has five fields: minute hour day month weekday.".into());
@@ -493,24 +498,21 @@ fn cron(text: &str, _: &mut Opts) -> Result<String, String> {
         }
         rows.push((names[i], (*field).to_owned()));
     }
-    Ok(format!(
-        "{} {} {} {} {}\n\n{}",
-        fields[0], fields[1], fields[2], fields[3], fields[4],
-        table(&rows)
-    ))
+    Ok(table(&[("Expression", fields[..5].join(" "))]).facts(&rows))
 }
 
-fn regex_test(text: &str, o: &mut Opts) -> Result<String, String> {
+fn regex_test(text: &str, o: &mut Opts) -> Result<Output, String> {
     let pattern = o.first;
     let re = Regex::new(pattern).map_err(|e| format!("Not a regular expression: {e}"))?;
-    let found: Vec<String> = re.find_iter(text).map(|m| format!("{} at {}", m.as_str(), m.start())).collect();
+    let found: Vec<Vec<String>> = re.find_iter(text).map(|m| vec![m.as_str().to_owned(), m.start().to_string()]).collect();
     if found.is_empty() {
-        return Ok("No matches.".into());
+        return Ok(verdict(false, "No matches."));
     }
-    Ok(format!("{} match{}:\n{}", found.len(), if found.len() == 1 { "" } else { "es" }, found.join("\n")))
+    let n = found.len();
+    Ok(verdict(true, format!("{n} match{}.", if n == 1 { "" } else { "es" })).table(&["Match", "At"], found))
 }
 
-fn curl(text: &str, _: &mut Opts) -> Result<String, String> {
+fn curl(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut method = "GET";
     let mut url = None;
     let mut headers = Vec::new();
@@ -538,13 +540,13 @@ fn curl(text: &str, _: &mut Opts) -> Result<String, String> {
     } else {
         format!(",\n  headers: {{{}}}", headers.iter().map(|h| format!("{:?}", h)).collect::<Vec<_>>().join(", "))
     };
-    Ok(format!(
+    Ok(super::snippet(format!(
         "fetch({url:?}, {{\n  method: {method:?}{header}{}\n}});",
         body.map_or(String::new(), |b| format!(",\n  body: {b:?}"))
-    ))
+    )))
 }
 
-fn user_agent(text: &str, _: &mut Opts) -> Result<String, String> {
+fn user_agent(text: &str, _: &mut Opts) -> Result<Output, String> {
     let ua = text.trim();
     if ua.is_empty() {
         return Err("Paste a user agent string.".into());
@@ -583,16 +585,16 @@ fn user_agent(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn valid_email(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_email(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = Regex::new(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$").unwrap();
     if re.is_match(text.trim()) {
-        Ok("Valid email address.".into())
+        Ok(verdict(true, "Valid email address."))
     } else {
         Err("Not a valid email address.".into())
     }
 }
 
-fn valid_url(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_url(text: &str, _: &mut Opts) -> Result<Output, String> {
     let url = text.trim();
     let Some((scheme, rest)) = url.split_once("://") else {
         return Err("A URL starts with a scheme such as https://.".into());
@@ -603,20 +605,20 @@ fn valid_url(text: &str, _: &mut Opts) -> Result<String, String> {
     if rest.is_empty() || rest.starts_with('/') {
         return Err("A URL needs a host.".into());
     }
-    Ok("Valid URL.".into())
+    Ok(verdict(true, "Valid URL."))
 }
 
-fn valid_ip(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_ip(text: &str, _: &mut Opts) -> Result<Output, String> {
     match text.trim().parse::<IpAddr>() {
-        Ok(ip) => Ok(format!("Valid {} address: {}.", if ip.is_ipv4() { "IPv4" } else { "IPv6" }, ip)),
+        Ok(ip) => Ok(verdict(true, format!("Valid {} address: {}.", if ip.is_ipv4() { "IPv4" } else { "IPv6" }, ip))),
         Err(_) => Err("Not a valid IPv4 or IPv6 address.".into()),
     }
 }
 
-fn valid_uuid(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_uuid(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
     if re.is_match(text.trim()) {
-        Ok("Valid UUID.".into())
+        Ok(verdict(true, "Valid UUID."))
     } else {
         Err("A UUID looks like 123e4567-e89b-12d3-a456-426614174000.".into())
     }
@@ -639,13 +641,13 @@ fn luhn(s: &str) -> bool {
     }).sum::<u32>() % 10 == 0
 }
 
-fn valid_card(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_card(text: &str, _: &mut Opts) -> Result<Output, String> {
     let digits: String = text.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
     if !digits.chars().all(|c| c.is_ascii_digit()) || !(12..=19).contains(&digits.len()) {
         return Err("A card number has 12 to 19 digits.".into());
     }
     if luhn(&digits) {
-        Ok(format!("Valid by the Luhn check ({} digits).", digits.len()))
+        Ok(verdict(true, format!("Valid by the Luhn check ({} digits).", digits.len())))
     } else {
         Err("The Luhn check fails: a digit is wrong.".into())
     }
@@ -670,43 +672,43 @@ fn iban_valid(s: &str) -> bool {
     rem == 1
 }
 
-fn valid_iban(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_iban(text: &str, _: &mut Opts) -> Result<Output, String> {
     if iban_valid(text) {
-        Ok("Valid IBAN by the mod-97 check.".into())
+        Ok(verdict(true, "Valid IBAN by the mod-97 check."))
     } else {
         Err("Not a valid IBAN.".into())
     }
 }
 
-fn valid_domain(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_domain(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = Regex::new(r"(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$").unwrap();
     let d = text.trim().trim_end_matches('.');
     if re.is_match(d) {
-        Ok(format!("Valid domain name, with {} label{}.", d.split('.').count(), if d.split('.').count() == 1 { "" } else { "s" }))
+        Ok(verdict(true, format!("Valid domain name, with {} label{}.", d.split('.').count(), if d.split('.').count() == 1 { "" } else { "s" })))
     } else {
         Err("Not a valid domain name.".into())
     }
 }
 
-fn valid_semver(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_semver(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = Regex::new(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$").unwrap();
     if re.is_match(text.trim()) {
-        Ok("Valid semantic version.".into())
+        Ok(verdict(true, "Valid semantic version."))
     } else {
         Err("A semantic version looks like 1.2.3, 1.2.3-beta.1 or 1.2.3+build.".into())
     }
 }
 
-fn valid_json(text: &str, _: &mut Opts) -> Result<String, String> {
+fn valid_json(text: &str, _: &mut Opts) -> Result<Output, String> {
     match hypereffect::serde_json::from_str::<hypereffect::Value>(text) {
-        Ok(v) => Ok(format!("Valid JSON: {} at the top.", match v {
+        Ok(v) => Ok(verdict(true, format!("Valid JSON: {} at the top.", match v {
             hypereffect::Value::Array(_) => "an array",
             hypereffect::Value::Object(_) => "an object",
             hypereffect::Value::String(_) => "a string",
             hypereffect::Value::Number(_) => "a number",
             hypereffect::Value::Bool(_) => "a boolean",
             hypereffect::Value::Null => "null",
-        })),
+        }))),
         Err(e) => Err(format!("Not JSON: {e}.")),
     }
 }
@@ -716,7 +718,7 @@ fn meta_attr(attrs: &str, name: &str) -> Option<String> {
     re.captures(attrs).map(|c| c[1].to_owned())
 }
 
-fn meta_tags(text: &str, _: &mut Opts) -> Result<String, String> {
+fn meta_tags(text: &str, _: &mut Opts) -> Result<Output, String> {
     let title = Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap();
     let meta = Regex::new(r"(?is)<meta\s+([^>]+)>").unwrap();
     let mut rows = Vec::new();
@@ -733,13 +735,13 @@ fn meta_tags(text: &str, _: &mut Opts) -> Result<String, String> {
         }
     }
     if rows.is_empty() {
-        Ok("No title or meta tags found.".into())
+        Ok(verdict(false, "No title or meta tags found."))
     } else {
         Ok(table(&rows.iter().map(|(a, b)| (a.as_str(), b.clone())).collect::<Vec<_>>()))
     }
 }
 
-fn open_graph(text: &str, _: &mut Opts) -> Result<String, String> {
+fn open_graph(text: &str, _: &mut Opts) -> Result<Output, String> {
     let meta = Regex::new(r"(?is)<meta\s+([^>]+)>").unwrap();
     let mut rows = Vec::new();
     for c in meta.captures_iter(text) {
@@ -758,7 +760,7 @@ fn open_graph(text: &str, _: &mut Opts) -> Result<String, String> {
     }
 }
 
-fn sitemap(text: &str, _: &mut Opts) -> Result<String, String> {
+fn sitemap(text: &str, _: &mut Opts) -> Result<Output, String> {
     let urls: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     if urls.is_empty() {
         return Err("Write one URL per line.".into());
@@ -769,10 +771,10 @@ fn sitemap(text: &str, _: &mut Opts) -> Result<String, String> {
         out.push_str(&format!("  <url><loc>{escaped}</loc></url>\n"));
     }
     out.push_str("</urlset>");
-    Ok(out)
+    Ok(super::snippet(out))
 }
 
-fn utm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn utm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let base = o.field(0);
     if base.is_empty() {
         return Err("Fill in the URL.".into());
@@ -788,23 +790,25 @@ fn utm(_: &str, o: &mut Opts) -> Result<String, String> {
     if query.is_empty() {
         return Err("Fill in at least one campaign field.".into());
     }
-    Ok(format!("{}{}{}", base, if base.contains('?') { "&" } else { "?" }, query.join("&")))
+    Ok(super::snippet(format!("{}{}{}", base, if base.contains('?') { "&" } else { "?" }, query.join("&"))))
 }
 
-fn serp(_: &str, o: &mut Opts) -> Result<String, String> {
+fn serp(_: &str, o: &mut Opts) -> Result<Output, String> {
     let title = o.field(0);
     let description = o.field(1);
     let url = o.field(2);
-    Ok(format!(
-        "{}\n{url}\n\nTitle: {} characters (about 60 fit).\nDescription: {} characters (about 160 fit).\nURL: {} characters.",
-        title,
-        title.chars().count(),
-        description.chars().count(),
-        url.chars().count()
-    ))
+    let (t, d) = (title.chars().count(), description.chars().count());
+    Ok(Output::default()
+        .facts(&[("", title.to_owned()), ("", url.to_owned())])
+        .text(description)
+        .facts(&[
+            ("Title", format!("{t} characters{}", if t > 60 { ", too long: about 60 fit" } else { "" })),
+            ("Description", format!("{d} characters{}", if d > 160 { ", too long: about 160 fit" } else { "" })),
+            ("URL", format!("{} characters", url.chars().count())),
+        ]))
 }
 
-fn robots(_: &str, o: &mut Opts) -> Result<String, String> {
+fn robots(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mut out = format!("User-agent: {}\n", if o.field(0).is_empty() { "*" } else { o.field(0) });
     if !o.field(1).is_empty() {
         out.push_str(&format!("Disallow: {}\n", o.field(1)));
@@ -815,10 +819,10 @@ fn robots(_: &str, o: &mut Opts) -> Result<String, String> {
     if !o.field(3).is_empty() {
         out.push_str(&format!("Sitemap: {}\n", o.field(3)));
     }
-    Ok(out)
+    Ok(super::snippet(out))
 }
 
-fn cidr(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cidr(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (addr, prefix) = match o.field(0).split_once('/') {
         Some((a, p)) => (a, p.parse::<u8>().map_err(|_| "The prefix after / is a number from 0 to 32.")?),
         None => (o.field(0), 32),
@@ -844,7 +848,7 @@ fn cidr(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn ip_convert(text: &str, _: &mut Opts) -> Result<String, String> {
+fn ip_convert(text: &str, _: &mut Opts) -> Result<Output, String> {
     let ip: Ipv4Addr = text.trim().parse().map_err(|_| "Write an IPv4 address such as 192.168.1.10.")?;
     let n = u32::from(ip);
     Ok(table(&[
@@ -864,7 +868,7 @@ fn ip_convert(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn mac(text: &str, _: &mut Opts) -> Result<String, String> {
+fn mac(text: &str, _: &mut Opts) -> Result<Output, String> {
     let hex: String = text.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     if hex.len() != 12 {
         return Err("A MAC address has twelve hexadecimal digits.".into());
@@ -880,7 +884,7 @@ fn mac(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn port(_: &str, o: &mut Opts) -> Result<String, String> {
+fn port(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     let found = if let Ok(n) = key.parse::<u16>() {
         PORTS.iter().find(|p| p.0 == n)
@@ -896,7 +900,7 @@ fn port(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn chmod(_: &str, o: &mut Opts) -> Result<String, String> {
+fn chmod(_: &str, o: &mut Opts) -> Result<Output, String> {
     let raw = o.field(0);
     let (mode, text) = if raw.chars().all(|c| c.is_ascii_digit()) {
         let mode = u32::from_str_radix(raw, 8).map_err(|_| "A numeric mode is octal, such as 755.")?;
@@ -927,14 +931,14 @@ fn chmod(_: &str, o: &mut Opts) -> Result<String, String> {
         }
         (mode, raw.to_owned())
     };
-    Ok(format!("{mode:o}\n\n{text}"))
+    Ok(table(&[("Octal", format!("{mode:o}")), ("Symbolic", text)]))
 }
 
-fn ascii(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ascii(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
     if key.is_empty() {
-        let rows: Vec<String> = (32u8..=126).map(|c| format!("{c:>3}  0x{c:02X}  {:08b}  {}", c, c as char)).collect();
-        return Ok(rows.join("\n"));
+        let rows = (32u8..=126).map(|c| vec![(c as char).to_string(), c.to_string(), format!("0x{c:02X}"), format!("{c:08b}")]);
+        return Ok(super::grid(&["Character", "Decimal", "Hex", "Binary"], rows));
     }
     let code = if key.chars().count() == 1 {
         key.chars().next().unwrap() as u32
@@ -951,7 +955,7 @@ fn ascii(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn html_entity(_: &str, o: &mut Opts) -> Result<String, String> {
+fn html_entity(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
     if key.is_empty() {
         return Ok(table(&HTML_ENTITIES.iter().map(|(name, entity, code)| (*name, format!("{entity}  U+{code:04X}  {code}"))).collect::<Vec<_>>()));
@@ -965,7 +969,7 @@ fn html_entity(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn country_code(_: &str, o: &mut Opts) -> Result<String, String> {
+fn country_code(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     let matches: Vec<&(&str, &str, &str, &str)> = COUNTRY_CODES
         .iter()
@@ -977,7 +981,7 @@ fn country_code(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&matches.iter().map(|c| (c.0, format!("{}  {}  {}", c.1, c.2, c.3))).collect::<Vec<_>>()))
 }
 
-fn currency_code(_: &str, o: &mut Opts) -> Result<String, String> {
+fn currency_code(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     let matches: Vec<&(&str, &str, &str)> = CURRENCIES
         .iter()
@@ -989,7 +993,7 @@ fn currency_code(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&matches.iter().map(|c| (c.0, format!("{} — {}", c.1, c.2))).collect::<Vec<_>>()))
 }
 
-fn file_signature(_: &str, o: &mut Opts) -> Result<String, String> {
+fn file_signature(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).trim_start_matches('.').to_ascii_lowercase();
     let matches: Vec<&(&str, &str, &str)> = FILE_SIGNATURES.iter().filter(|f| f.0.eq_ignore_ascii_case(&key)).collect();
     if matches.is_empty() {
@@ -998,16 +1002,16 @@ fn file_signature(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&matches.iter().map(|f| (f.0, format!("{}  ({})", f.1, f.2))).collect::<Vec<_>>()))
 }
 
-fn timezone(_: &str, o: &mut Opts) -> Result<String, String> {
+fn timezone(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     if key.is_empty() {
-        return Ok(TIMEZONES.join("\n"));
+        return Ok(super::list(TIMEZONES.iter().copied()));
     }
     let matches: Vec<&&str> = TIMEZONES.iter().filter(|z| z.to_ascii_lowercase().contains(&key)).collect();
     if matches.is_empty() {
         return Err(format!("No time zone matches “{}”.", o.field(0)));
     }
-    Ok(matches.iter().map(|z| **z).collect::<Vec<_>>().join("\n"))
+    Ok(super::list(matches.iter().map(|z| **z)))
 }
 
 pub const DEVELOPER: &[Tool] = &[
@@ -1040,11 +1044,11 @@ pub const DEVELOPER: &[Tool] = &[
     tool("web-http-headers", "HTTP headers", "Common request and response headers.", headers).form(),
 ];
 
-fn methods(_: &str, _: &mut Opts) -> Result<String, String> {
+fn methods(_: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(table(&HTTP_METHODS.iter().map(|(m, d)| (*m, (*d).to_owned())).collect::<Vec<_>>()))
 }
 
-fn headers(_: &str, _: &mut Opts) -> Result<String, String> {
+fn headers(_: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(table(&HTTP_HEADERS.iter().map(|(h, d)| (*h, (*d).to_owned())).collect::<Vec<_>>()))
 }
 
@@ -1132,6 +1136,6 @@ pub const REFERENCE: &[Tool] = &[
     tool("web-status-table", "HTTP status table", "All the status codes in the table.", statuses).form(),
 ];
 
-fn statuses(_: &str, _: &mut Opts) -> Result<String, String> {
+fn statuses(_: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(table(&HTTP_STATUS.iter().map(|(code, reason, _)| (*reason, format!("{code} — {reason}"))).collect::<Vec<_>>()))
 }

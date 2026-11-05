@@ -1,7 +1,8 @@
 //! Data formats (CSV, YAML, .env) and sorting.
 
+use super::Output;
 use super::code::{json_text, lenient_json};
-use super::{Opts, Tool, markup, text, tool};
+use super::{Opts, Tool, grid, markup, text, tool, verdict};
 use hypereffect::serde_json::{self, Map, Value};
 use std::cmp::Ordering;
 
@@ -94,7 +95,7 @@ fn cell_value(s: &str, typed: bool) -> Value {
     Value::String(s.to_owned())
 }
 
-fn csv_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
+fn csv_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows = parse_csv(text, sniff(text, o.mode))?;
     let typed = o.check(0);
     let out: Vec<Value> = if o.check(1) {
@@ -112,10 +113,10 @@ fn csv_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
             })
             .collect()
     };
-    Ok(json_text(&Value::Array(out), o.number))
+    Ok(json_text(&Value::Array(out), o.number).into())
 }
 
-fn csv_to_markdown(text: &str, o: &mut Opts) -> Result<String, String> {
+fn csv_to_markdown(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows = parse_csv(text, sniff(text, o.mode))?;
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let esc = |s: &str| s.trim().replace('|', "\\|").replace('\n', "<br>");
@@ -134,10 +135,10 @@ fn csv_to_markdown(text: &str, o: &mut Opts) -> Result<String, String> {
     let mut out = vec![line(&rows[0])];
     out.push(format!("|{}|", width.iter().map(|w| format!(" {} ", "-".repeat(*w))).collect::<Vec<_>>().join("|")));
     out.extend(rows[1..].iter().map(line));
-    Ok(out.join("\n"))
+    Ok(out.join("\n").into())
 }
 
-fn table_format(text: &str, o: &mut Opts) -> Result<String, String> {
+fn table_format(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows = parse_csv(text, sniff(text, o.mode))?;
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let width: Vec<usize> = (0..cols)
@@ -161,10 +162,10 @@ fn table_format(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     out.extend(rows[1..].iter().map(|r| line(r, false)));
     out.push(rule("└", "┴", "┘"));
-    Ok(out.join("\n"))
+    Ok(out.join("\n").into())
 }
 
-fn csv_validate(text: &str, o: &mut Opts) -> Result<String, String> {
+fn csv_validate(text: &str, o: &mut Opts) -> Result<Output, String> {
     let delim = sniff(text, o.mode);
     let rows = parse_csv(text, delim)?;
     let cols = rows[0].len();
@@ -192,14 +193,13 @@ fn csv_validate(text: &str, o: &mut Opts) -> Result<String, String> {
     };
     let summary = format!("{} rows of {cols} columns, separated by {name}.", rows.len() - 1);
     if problems.is_empty() {
-        o.info = Some("Valid".into());
-        return Ok(format!("✓ {summary}"));
+        return Ok(verdict(true, format!("Valid: {summary}")));
     }
-    o.info = Some(format!("{} problems", problems.len()));
-    Ok(format!("{summary}\n\n{}", problems.join("\n")))
+    let n = problems.len();
+    Ok(verdict(false, format!("{n} problem{}. {summary}", if n == 1 { "" } else { "s" })).list(problems))
 }
 
-fn duplicate_finder(text: &str, o: &mut Opts) -> Result<String, String> {
+fn duplicate_finder(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut counts: Vec<(String, Vec<usize>)> = Vec::new();
     for (i, l) in text.lines().enumerate() {
         let key = if o.flag { l.trim().to_lowercase() } else { l.trim().to_owned() };
@@ -211,16 +211,16 @@ fn duplicate_finder(text: &str, o: &mut Opts) -> Result<String, String> {
             None => counts.push((key, vec![i + 1])),
         }
     }
-    let dups: Vec<String> = counts
+    let dups: Vec<Vec<String>> = counts
         .iter()
         .filter(|c| c.1.len() > 1)
-        .map(|(k, at)| format!("{}× {k}  (lines {})", at.len(), at.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")))
+        .map(|(k, at)| vec![k.clone(), format!("{}×", at.len()), at.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")])
         .collect();
-    o.info = Some(format!("{} repeated values", dups.len()));
+    let dups_len = dups.len();
     if dups.is_empty() {
-        return Ok("No duplicates.".into());
+        return Ok(verdict(true, "No duplicates."));
     }
-    Ok(dups.join("\n"))
+    Ok(grid(&["Value", "Times", "Lines"], dups).note(format!("{} repeated values", dups_len)))
 }
 
 // YAML
@@ -319,11 +319,11 @@ fn yaml_scalar(v: &Value) -> String {
     }
 }
 
-fn json_to_yaml(text: &str, _: &mut Opts) -> Result<String, String> {
+fn json_to_yaml(text: &str, _: &mut Opts) -> Result<Output, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("Not JSON: {e}."))?;
     let mut out = String::new();
     to_yaml(&v, 0, &mut out);
-    Ok(out.trim_end().to_owned())
+    Ok(out.trim_end().to_owned().into())
 }
 
 /// The part of a YAML line before a comment.
@@ -613,27 +613,23 @@ impl Yaml {
     }
 }
 
-fn yaml_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
+fn yaml_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut y = Yaml::new(text)?;
     let v = y.value(0)?;
     if let Some((_, l)) = y.peek() {
         let n = y.lines[y.i].2;
         return Err(format!("Line {n}: cannot read “{l}”."));
     }
-    Ok(json_text(&v, o.number))
+    Ok(json_text(&v, o.number).into())
 }
 
-fn json_repair(text: &str, o: &mut Opts) -> Result<String, String> {
+fn json_repair(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v = lenient_json(text)?;
-    if serde_json::from_str::<Value>(text).is_ok() {
-        o.info = Some("It was valid already.".into());
-    } else {
-        o.info = Some("Repaired".into());
-    }
-    Ok(json_text(&v, o.number))
+    let valid = serde_json::from_str::<Value>(text).is_ok();
+    Ok(Output::from(json_text(&v, o.number)).note(if valid { "It was valid already." } else { "Repaired." }))
 }
 
-fn env_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
+fn env_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut m = Map::new();
     for (n, line) in text.lines().enumerate() {
         let l = line.trim();
@@ -667,7 +663,7 @@ fn env_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
             out.trim_end().to_owned()
         }
         _ => json_text(&Value::Object(m), 2),
-    })
+    }.into())
 }
 
 // Sorting
@@ -701,7 +697,7 @@ pub fn natural(a: &str, b: &str) -> Ordering {
     ca.len().cmp(&cb.len()).then(a.cmp(b))
 }
 
-fn sorted_lines(text: &str, o: &Opts, key: impl Fn(&str) -> Option<Vec<f64>>, what: &str) -> Result<String, String> {
+fn sorted_lines(text: &str, o: &Opts, key: impl Fn(&str) -> Option<Vec<f64>>, what: &str) -> Result<Output, String> {
     let mut keyed: Vec<(Vec<f64>, &str)> = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
         keyed.push((key(l).ok_or_else(|| format!("“{l}” is not {what}."))?, l));
@@ -715,10 +711,10 @@ fn sorted_lines(text: &str, o: &Opts, key: impl Fn(&str) -> Option<Vec<f64>>, wh
     if o.flag {
         keyed.dedup_by(|a, b| a.1 == b.1);
     }
-    Ok(keyed.iter().map(|k| k.1).collect::<Vec<_>>().join("\n"))
+    Ok(keyed.iter().map(|k| k.1).collect::<Vec<_>>().join("\n").into())
 }
 
-fn natural_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn natural_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut v: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     v.sort_by(|a, b| natural(a, b));
     if o.mode == "desc" {
@@ -727,7 +723,7 @@ fn natural_sort(text: &str, o: &mut Opts) -> Result<String, String> {
     if o.flag {
         v.dedup();
     }
-    Ok(v.join("\n"))
+    Ok(v.join("\n").into())
 }
 
 pub fn ip_key(s: &str) -> Option<Vec<f64>> {
@@ -740,7 +736,7 @@ pub fn ip_key(s: &str) -> Option<Vec<f64>> {
     Some(std::iter::once(0.0).chain(ip.octets().iter().map(|x| *x as f64)).collect())
 }
 
-fn ip_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn ip_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     sorted_lines(text, o, ip_key, "an IP address")
 }
 
@@ -760,7 +756,7 @@ fn version_key(s: &str) -> Option<Vec<f64>> {
     Some(k)
 }
 
-fn version_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn version_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     sorted_lines(text, o, version_key, "a version number")
 }
 
@@ -787,15 +783,15 @@ pub fn size_bytes(s: &str) -> Option<f64> {
     Some(n * k)
 }
 
-fn size_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn size_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     sorted_lines(text, o, |s| size_bytes(s).map(|b| vec![b]), "a file size")
 }
 
-fn date_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn date_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     sorted_lines(text, o, |s| super::dates::parse_datetime(s).map(|t| vec![t]), "a date")
 }
 
-fn domain_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn domain_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut v: Vec<(String, &str)> = text
         .lines()
         .map(str::trim)
@@ -815,10 +811,10 @@ fn domain_sort(text: &str, o: &mut Opts) -> Result<String, String> {
     if o.flag {
         v.dedup_by(|a, b| a.1 == b.1);
     }
-    Ok(v.iter().map(|x| x.1).collect::<Vec<_>>().join("\n"))
+    Ok(v.iter().map(|x| x.1).collect::<Vec<_>>().join("\n").into())
 }
 
-fn csv_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn csv_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let delim = sniff(text, "auto");
     let rows = parse_csv(text, delim)?;
     let header = &rows[0];
@@ -847,7 +843,7 @@ fn csv_sort(text: &str, o: &mut Opts) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(&d)
     };
-    Ok(std::iter::once(header).chain(body).map(line).collect::<Vec<_>>().join("\n"))
+    Ok(std::iter::once(header).chain(body).map(line).collect::<Vec<_>>().join("\n").into())
 }
 
 fn sort_keys(v: &mut Value, desc: bool) {
@@ -865,7 +861,7 @@ fn sort_keys(v: &mut Value, desc: bool) {
     }
 }
 
-fn json_sort(text: &str, o: &mut Opts) -> Result<String, String> {
+fn json_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut v: Value = serde_json::from_str(text).map_err(|e| format!("Not JSON: {e}."))?;
     let desc = o.mode == "desc";
     let by = o.field(0);
@@ -885,7 +881,7 @@ fn json_sort(text: &str, o: &mut Opts) -> Result<String, String> {
             a.reverse();
         }
     }
-    Ok(json_text(&v, 2))
+    Ok(json_text(&v, 2).into())
 }
 
 // The menus
@@ -985,7 +981,7 @@ mod tests {
         let mut rng = Rng(1);
         let mut o = Opts::new(mode, &mut rng);
         o.number = 2;
-        f(text, &mut o).unwrap()
+        f(text, &mut o).unwrap().plain()
     }
 
     #[test]

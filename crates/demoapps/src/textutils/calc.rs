@@ -1,7 +1,8 @@
 //! Everyday calculators: money, business, health, home, cooking, travel.
 
+use super::Output;
 use super::dates::{clock, iso, weekday, WEEKDAYS};
-use super::{Opts, Tool, fmt, table, tool};
+use super::{Opts, Tool, fmt, grid, prose, table, tool};
 
 fn money(v: f64) -> String {
     fmt(v, 2)
@@ -50,7 +51,7 @@ pub fn numbers(text: &str) -> Result<Vec<f64>, String> {
 
 // Finance
 
-fn loan(_: &str, o: &mut Opts) -> Result<String, String> {
+fn loan(_: &str, o: &mut Opts) -> Result<Output, String> {
     let p = o.positive(0)?;
     let rate = o.num(1)? / 100.0 / 12.0;
     let n = (o.positive(2)? * 12.0).round();
@@ -63,7 +64,7 @@ fn loan(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn mortgage(_: &str, o: &mut Opts) -> Result<String, String> {
+fn mortgage(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let down = o.num(1)? / 100.0 * price;
     let rate = o.num(2)? / 100.0 / 12.0;
@@ -81,7 +82,7 @@ fn mortgage(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn amortization(_: &str, o: &mut Opts) -> Result<String, String> {
+fn amortization(_: &str, o: &mut Opts) -> Result<Output, String> {
     let p = o.positive(0)?;
     let rate = o.num(1)? / 100.0 / 12.0;
     let n = (o.positive(2)? * 12.0).round() as usize;
@@ -91,9 +92,12 @@ fn amortization(_: &str, o: &mut Opts) -> Result<String, String> {
     let extra = o.opt_num(3)?.unwrap_or(0.0);
     let m = payment(p, rate, n as f64);
     let mut balance = p;
-    let mut out = vec![format!("Payment: {} a month{}", money(m), if extra > 0.0 { format!(" + {} extra", money(extra)) } else { String::new() }), String::new()];
+    let mut facts = vec![("Monthly payment", money(m))];
+    if extra > 0.0 {
+        facts.push(("Extra each month", money(extra)));
+    }
     let yearly = o.mode != "monthly";
-    out.push(format!("{:>6}  {:>14}  {:>14}  {:>14}", if yearly { "Year" } else { "Month" }, "Principal", "Interest", "Balance"));
+    let mut rows = Vec::new();
     let (mut yp, mut yi, mut total_interest) = (0.0, 0.0, 0.0);
     for k in 1..=n {
         let interest = balance * rate;
@@ -104,19 +108,20 @@ fn amortization(_: &str, o: &mut Opts) -> Result<String, String> {
         total_interest += interest;
         let done = balance < 0.005;
         if !yearly || k % 12 == 0 || done {
-            out.push(format!("{:>6}  {:>14}  {:>14}  {:>14}", if yearly { k.div_ceil(12) } else { k }, money(yp), money(yi), money(balance.max(0.0))));
+            rows.push(vec![(if yearly { k.div_ceil(12) } else { k }).to_string(), money(yp), money(yi), money(balance.max(0.0))]);
             yp = 0.0;
             yi = 0.0;
         }
         if done {
-            out.insert(1, format!("Paid off after {k} months; {} of interest.", money(total_interest)));
+            facts.push(("Paid off after", format!("{k} months")));
+            facts.push(("Total interest", money(total_interest)));
             break;
         }
     }
-    Ok(out.join("\n"))
+    Ok(table(&facts).table(&[if yearly { "Year" } else { "Month" }, "Principal", "Interest", "Balance"], rows))
 }
 
-fn compound(_: &str, o: &mut Opts) -> Result<String, String> {
+fn compound(_: &str, o: &mut Opts) -> Result<Output, String> {
     let p = o.num(0)?;
     let r = o.num(1)? / 100.0;
     let years = o.positive(2)?;
@@ -140,24 +145,20 @@ fn compound(_: &str, o: &mut Opts) -> Result<String, String> {
             balance *= 1.0 + r / k;
         }
         if mth % 12 == 0 {
-            lines.push(format!("Year {:>3}: {}", mth / 12, money(balance)));
+            lines.push(vec![(mth / 12).to_string(), money(balance)]);
         }
     }
     let contributed = p + monthly * months as f64;
-    let mut out = vec![table(&[
+    let out = table(&[
         ("Final balance", money(balance)),
         ("Contributed", money(contributed)),
         ("Interest earned", money(balance - contributed)),
         ("Effective annual rate", pct(((1.0 + r / k).powf(k) - 1.0) * 100.0)),
-    ])];
-    if lines.len() > 1 {
-        out.push(String::new());
-        out.extend(lines);
-    }
-    Ok(out.join("\n"))
+    ]);
+    Ok(if lines.len() > 1 { out.table(&["Year", "Balance"], lines) } else { out })
 }
 
-fn simple_interest(_: &str, o: &mut Opts) -> Result<String, String> {
+fn simple_interest(_: &str, o: &mut Opts) -> Result<Output, String> {
     let p = o.num(0)?;
     let r = o.num(1)? / 100.0;
     let t = o.num(2)?;
@@ -165,17 +166,17 @@ fn simple_interest(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Interest", money(i)), ("Total", money(p + i))]))
 }
 
-fn effective_rate(_: &str, o: &mut Opts) -> Result<String, String> {
+fn effective_rate(_: &str, o: &mut Opts) -> Result<Output, String> {
     let r = o.num(0)? / 100.0;
     let rows: Vec<(&str, String)> = [("Yearly", 1.0), ("Quarterly", 4.0), ("Monthly", 12.0), ("Daily", 365.0)]
         .iter()
         .map(|(n, k)| (*n, pct(((1.0 + r / k).powf(*k) - 1.0) * 100.0)))
         .chain(std::iter::once(("Continuous", pct((r.exp() - 1.0) * 100.0))))
         .collect();
-    Ok(format!("Effective annual rate (APY) of a {} nominal rate, compounded:\n\n{}", pct(r * 100.0), table(&rows)))
+    Ok(prose(format!("Effective annual rate (APY) of a {} nominal rate, compounded:", pct(r * 100.0))).then(table(&rows)))
 }
 
-fn savings_goal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn savings_goal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let goal = o.positive(0)?;
     let have = o.opt_num(1)?.unwrap_or(0.0);
     let r = o.opt_num(2)?.unwrap_or(0.0) / 100.0 / 12.0;
@@ -189,7 +190,7 @@ fn savings_goal(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn retirement(_: &str, o: &mut Opts) -> Result<String, String> {
+fn retirement(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (age, retire) = (o.num(0)?, o.num(1)?);
     if retire <= age {
         return Err("The retirement age must be after the current age.".into());
@@ -209,7 +210,7 @@ fn retirement(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn fire(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fire(_: &str, o: &mut Opts) -> Result<Output, String> {
     let spend = o.positive(0)?;
     let mut have = o.num(1)?;
     let save = o.num(2)?;
@@ -228,7 +229,7 @@ fn fire(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn debt_payoff(_: &str, o: &mut Opts) -> Result<String, String> {
+fn debt_payoff(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mut balance = o.positive(0)?;
     let r = o.num(1)? / 100.0 / 12.0;
     let pay = o.positive(2)?;
@@ -249,7 +250,7 @@ fn debt_payoff(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn inflation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn inflation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let amount = o.num(0)?;
     let r = o.num(1)? / 100.0;
     let years = o.num(2)?;
@@ -261,7 +262,7 @@ fn inflation(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn npv(text: &str, o: &mut Opts) -> Result<String, String> {
+fn npv(text: &str, o: &mut Opts) -> Result<Output, String> {
     let flows = numbers(text)?;
     let r = o.num(0)? / 100.0;
     let v: f64 = flows.iter().enumerate().map(|(t, c)| c / (1.0 + r).powi(t as i32)).sum();
@@ -286,13 +287,13 @@ pub fn irr_of(flows: &[f64]) -> Option<f64> {
     Some((lo + hi) / 2.0)
 }
 
-fn irr(text: &str, _: &mut Opts) -> Result<String, String> {
+fn irr(text: &str, _: &mut Opts) -> Result<Output, String> {
     let flows = numbers(text)?;
     let r = irr_of(&flows).ok_or("No rate makes the cash flows add up to zero: they need both payments and receipts.")?;
     Ok(table(&[("Internal rate of return", pct(r * 100.0)), ("Cash flows", flows.len().to_string())]))
 }
 
-fn roi(_: &str, o: &mut Opts) -> Result<String, String> {
+fn roi(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cost = o.positive(0)?;
     let value = o.num(1)?;
     let years = o.opt_num(2)?;
@@ -304,7 +305,7 @@ fn roi(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn break_even(_: &str, o: &mut Opts) -> Result<String, String> {
+fn break_even(_: &str, o: &mut Opts) -> Result<Output, String> {
     let fixed = o.num(0)?;
     let price = o.num(1)?;
     let var = o.num(2)?;
@@ -319,7 +320,7 @@ fn break_even(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn margin(_: &str, o: &mut Opts) -> Result<String, String> {
+fn margin(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cost = o.num(0)?;
     let price = o.positive(1)?;
     let profit = price - cost;
@@ -330,7 +331,7 @@ fn margin(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn discount(_: &str, o: &mut Opts) -> Result<String, String> {
+fn discount(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.num(0)?;
     let d = o.num(1)? / 100.0;
     let extra = o.opt_num(2)?.unwrap_or(0.0) / 100.0;
@@ -343,14 +344,14 @@ fn discount(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn vat(_: &str, o: &mut Opts) -> Result<String, String> {
+fn vat(_: &str, o: &mut Opts) -> Result<Output, String> {
     let amount = o.num(0)?;
     let r = o.num(1)? / 100.0;
     let (net, gross) = if o.mode == "remove" { (amount / (1.0 + r), amount) } else { (amount, amount * (1.0 + r)) };
     Ok(table(&[("Net", money(net)), ("Tax", money(gross - net)), ("Gross", money(gross))]))
 }
 
-fn salary(_: &str, o: &mut Opts) -> Result<String, String> {
+fn salary(_: &str, o: &mut Opts) -> Result<Output, String> {
     let amount = o.positive(0)?;
     let hours = o.positive(1)?;
     let weeks = o.positive(2)?;
@@ -370,7 +371,7 @@ fn salary(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn crypto_profit(_: &str, o: &mut Opts) -> Result<String, String> {
+fn crypto_profit(_: &str, o: &mut Opts) -> Result<Output, String> {
     let invested = o.positive(0)?;
     let buy = o.positive(1)?;
     let sell = o.positive(2)?;
@@ -385,25 +386,24 @@ fn crypto_profit(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn invoice(text: &str, o: &mut Opts) -> Result<String, String> {
+fn invoice(text: &str, o: &mut Opts) -> Result<Output, String> {
     let items = rows(text, 2)?;
     let tax = o.opt_num(0)?.unwrap_or(0.0) / 100.0;
     let disc = o.opt_num(1)?.unwrap_or(0.0) / 100.0;
-    let mut out = vec![format!("{:<28} {:>8} {:>12} {:>12}", "Item", "Qty", "Price", "Amount")];
+    let mut lines = Vec::new();
     let mut sub = 0.0;
     for (name, n) in &items {
         let amount = n[0] * n[1];
         sub += amount;
-        out.push(format!("{:<28} {:>8} {:>12} {:>12}", name, fmt(n[0], 2), money(n[1]), money(amount)));
+        lines.push(vec![name.clone(), fmt(n[0], 2), money(n[1]), money(amount)]);
     }
-    out.push(String::new());
     let d = sub * disc;
     let t = (sub - d) * tax;
-    out.push(table(&[("Subtotal", money(sub)), ("Discount", money(-d)), ("Tax", money(t)), ("Total", money(sub - d + t))]));
-    Ok(out.join("\n"))
+    Ok(grid(&["Item", "Qty", "Price", "Amount"], lines)
+        .facts(&[("Subtotal", money(sub)), ("Discount", money(-d)), ("Tax", money(t)), ("Total", money(sub - d + t))]))
 }
 
-fn subscriptions(text: &str, _: &mut Opts) -> Result<String, String> {
+fn subscriptions(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut monthly = 0.0;
     let mut out = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -421,14 +421,13 @@ fn subscriptions(text: &str, _: &mut Opts) -> Result<String, String> {
             .next()
             .ok_or_else(|| format!("“{l}” has no price."))?;
         monthly += price * per;
-        out.push(format!("{:<30} {:>10} a month", l.split([',', ':']).next().unwrap_or(l).trim(), money(price * per)));
+        out.push(vec![l.split([',', ':']).next().unwrap_or(l).trim().to_owned(), money(price * per)]);
     }
-    out.push(String::new());
-    out.push(table(&[("Monthly", money(monthly)), ("Yearly", money(monthly * 12.0)), ("Daily", money(monthly * 12.0 / 365.0))]));
-    Ok(out.join("\n"))
+    Ok(grid(&["Subscription", "A month"], out)
+        .facts(&[("Monthly", money(monthly)), ("Yearly", money(monthly * 12.0)), ("Daily", money(monthly * 12.0 / 365.0))]))
 }
 
-fn net_worth(text: &str, _: &mut Opts) -> Result<String, String> {
+fn net_worth(text: &str, _: &mut Opts) -> Result<Output, String> {
     let items = rows(text, 1)?;
     let assets: f64 = items.iter().map(|i| i.1[0]).filter(|v| *v > 0.0).sum();
     let debts: f64 = -items.iter().map(|i| i.1[0]).filter(|v| *v < 0.0).sum::<f64>();
@@ -440,7 +439,7 @@ fn net_worth(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn emergency_fund(_: &str, o: &mut Opts) -> Result<String, String> {
+fn emergency_fund(_: &str, o: &mut Opts) -> Result<Output, String> {
     let expenses = o.positive(0)?;
     let months = o.positive(1)?;
     let have = o.opt_num(2)?.unwrap_or(0.0);
@@ -454,7 +453,7 @@ fn emergency_fund(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn rent_vs_buy(_: &str, o: &mut Opts) -> Result<String, String> {
+fn rent_vs_buy(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let down = o.num(1)? / 100.0 * price;
     let rate = o.num(2)? / 100.0;
@@ -489,7 +488,7 @@ fn rent_vs_buy(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn late_payment(_: &str, o: &mut Opts) -> Result<String, String> {
+fn late_payment(_: &str, o: &mut Opts) -> Result<Output, String> {
     let amount = o.positive(0)?;
     let rate = o.num(1)? / 100.0;
     let days = o.num(2)?;
@@ -498,7 +497,7 @@ fn late_payment(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Interest", money(interest)), ("Fixed fee", money(fee)), ("Total due", money(amount + interest + fee))]))
 }
 
-fn currency_format(_: &str, o: &mut Opts) -> Result<String, String> {
+fn currency_format(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let symbol = o.field(1);
     let digits = o.opt_num(2)?.unwrap_or(2.0).clamp(0.0, 8.0) as usize;
@@ -536,10 +535,10 @@ fn currency_format(_: &str, o: &mut Opts) -> Result<String, String> {
         _ => format!("{sign}{symbol}{n}"),
     }
     .trim()
-    .to_owned())
+    .into())
 }
 
-fn tip(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tip(_: &str, o: &mut Opts) -> Result<Output, String> {
     let bill = o.positive(0)?;
     let t = o.num(1)? / 100.0;
     let people = o.opt_num(2)?.unwrap_or(1.0).max(1.0);
@@ -554,13 +553,13 @@ fn tip(_: &str, o: &mut Opts) -> Result<String, String> {
 
 // Business and real estate
 
-fn cac(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cac(_: &str, o: &mut Opts) -> Result<Output, String> {
     let spend = o.num(0)? + o.opt_num(1)?.unwrap_or(0.0);
     let customers = o.positive(2)?;
     Ok(table(&[("Customer acquisition cost", money(spend / customers)), ("Total spend", money(spend))]))
 }
 
-fn churn(_: &str, o: &mut Opts) -> Result<String, String> {
+fn churn(_: &str, o: &mut Opts) -> Result<Output, String> {
     let start = o.positive(0)?;
     let end = o.num(1)?;
     let new = o.opt_num(2)?.unwrap_or(0.0);
@@ -574,7 +573,7 @@ fn churn(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn conversion(_: &str, o: &mut Opts) -> Result<String, String> {
+fn conversion(_: &str, o: &mut Opts) -> Result<Output, String> {
     let visitors = o.positive(0)?;
     let conv = o.num(1)?;
     let value = o.opt_num(2)?;
@@ -586,7 +585,7 @@ fn conversion(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn ltv(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ltv(_: &str, o: &mut Opts) -> Result<Output, String> {
     let arpu = o.positive(0)?;
     let margin = o.opt_num(1)?.unwrap_or(100.0) / 100.0;
     let churn = o.positive(2)? / 100.0;
@@ -599,7 +598,7 @@ fn ltv(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn unit_economics(_: &str, o: &mut Opts) -> Result<String, String> {
+fn unit_economics(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let cogs = o.num(1)?;
     let cac = o.num(2)?;
@@ -614,7 +613,7 @@ fn unit_economics(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn freelance_rate(_: &str, o: &mut Opts) -> Result<String, String> {
+fn freelance_rate(_: &str, o: &mut Opts) -> Result<Output, String> {
     let income = o.positive(0)?;
     let expenses = o.opt_num(1)?.unwrap_or(0.0);
     let tax = o.opt_num(2)?.unwrap_or(0.0) / 100.0;
@@ -630,7 +629,7 @@ fn freelance_rate(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn meeting_cost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn meeting_cost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let people = o.positive(0)?;
     let salary = o.positive(1)?;
     let minutes = o.positive(2)?;
@@ -644,7 +643,7 @@ fn meeting_cost(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn quote(text: &str, o: &mut Opts) -> Result<String, String> {
+fn quote(text: &str, o: &mut Opts) -> Result<Output, String> {
     let tasks = rows(text, 1)?;
     let rate = o.positive(0)?;
     let buffer = o.opt_num(1)?.unwrap_or(0.0) / 100.0;
@@ -652,19 +651,17 @@ fn quote(text: &str, o: &mut Opts) -> Result<String, String> {
     let mut hours = 0.0;
     for (name, h) in &tasks {
         hours += h[0];
-        out.push(format!("{:<32} {:>6} h {:>12}", name, fmt(h[0], 1), money(h[0] * rate)));
+        out.push(vec![name.clone(), format!("{} h", fmt(h[0], 1)), money(h[0] * rate)]);
     }
-    out.push(String::new());
-    out.push(table(&[
+    Ok(grid(&["Task", "Hours", "Cost"], out).facts(&[
         ("Hours", fmt(hours, 1)),
         ("Subtotal", money(hours * rate)),
         ("Contingency", money(hours * rate * buffer)),
         ("Quote", money(hours * rate * (1.0 + buffer))),
-    ]));
-    Ok(out.join("\n"))
+    ]))
 }
 
-fn pert(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pert(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, m, b) = (o.num(0)?, o.num(1)?, o.num(2)?);
     if !(a <= m && m <= b) {
         return Err("Optimistic ≤ likely ≤ pessimistic.".into());
@@ -679,7 +676,7 @@ fn pert(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn cap_rate(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cap_rate(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let rent = o.num(1)? * 12.0;
     let expenses = o.opt_num(2)?.unwrap_or(0.0);
@@ -687,7 +684,7 @@ fn cap_rate(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Net operating income", money(noi)), ("Cap rate", pct(noi / price * 100.0))]))
 }
 
-fn cash_flow(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cash_flow(_: &str, o: &mut Opts) -> Result<Output, String> {
     let rent = o.positive(0)?;
     let mortgage = o.num(1)?;
     let fixed = o.opt_num(2)?.unwrap_or(0.0);
@@ -704,14 +701,14 @@ fn cash_flow(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn rental_yield(_: &str, o: &mut Opts) -> Result<String, String> {
+fn rental_yield(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let rent = o.positive(1)? * 12.0;
     let costs = o.opt_num(2)?.unwrap_or(0.0);
     Ok(table(&[("Gross yield", pct(rent / price * 100.0)), ("Net yield", pct((rent - costs) / price * 100.0)), ("Price to rent", fmt(price / rent, 1))]))
 }
 
-fn affordability(_: &str, o: &mut Opts) -> Result<String, String> {
+fn affordability(_: &str, o: &mut Opts) -> Result<Output, String> {
     let income = o.positive(0)? / 12.0;
     let debts = o.opt_num(1)?.unwrap_or(0.0);
     let down = o.opt_num(2)?.unwrap_or(0.0);
@@ -735,7 +732,7 @@ fn affordability(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn flip(_: &str, o: &mut Opts) -> Result<String, String> {
+fn flip(_: &str, o: &mut Opts) -> Result<Output, String> {
     let arv = o.positive(0)?;
     let repairs = o.num(1)?;
     let price = o.opt_num(2)?;
@@ -750,7 +747,7 @@ fn flip(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn closing_costs(_: &str, o: &mut Opts) -> Result<String, String> {
+fn closing_costs(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let down = o.opt_num(1)?.unwrap_or(20.0) / 100.0;
     let loan = price * (1.0 - down);
@@ -763,7 +760,7 @@ fn closing_costs(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn property_tax(_: &str, o: &mut Opts) -> Result<String, String> {
+fn property_tax(_: &str, o: &mut Opts) -> Result<Output, String> {
     let value = o.positive(0)?;
     let rate = o.num(1)?;
     let exemption = o.opt_num(2)?.unwrap_or(0.0);
@@ -772,14 +769,14 @@ fn property_tax(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Yearly", money(yearly)), ("Monthly", money(yearly / 12.0)), ("Taxable value", money(taxable))]))
 }
 
-fn rent_increase(_: &str, o: &mut Opts) -> Result<String, String> {
+fn rent_increase(_: &str, o: &mut Opts) -> Result<Output, String> {
     let rent = o.positive(0)?;
     let v = o.num(1)?;
     let (new, p) = if o.mode == "amount" { (v, (v / rent - 1.0) * 100.0) } else { (rent * (1.0 + v / 100.0), v) };
     Ok(table(&[("New rent", money(new)), ("Increase", format!("{} ({})", money(new - rent), pct(p))), ("More a year", money((new - rent) * 12.0))]))
 }
 
-fn rental_depreciation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn rental_depreciation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let basis = o.positive(0)? - o.opt_num(1)?.unwrap_or(0.0);
     let life = if o.mode == "commercial" { 39.0 } else { 27.5 };
     Ok(table(&[
@@ -790,7 +787,7 @@ fn rental_depreciation(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn vacancy(_: &str, o: &mut Opts) -> Result<String, String> {
+fn vacancy(_: &str, o: &mut Opts) -> Result<Output, String> {
     let total = o.positive(0)?;
     let vacant = o.num(1)?;
     let rent = o.opt_num(2)?;
@@ -802,7 +799,7 @@ fn vacancy(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn repair_replace(_: &str, o: &mut Opts) -> Result<String, String> {
+fn repair_replace(_: &str, o: &mut Opts) -> Result<Output, String> {
     let repair = o.positive(0)?;
     let replace = o.positive(1)?;
     let age = o.num(2)?;
@@ -821,7 +818,7 @@ fn repair_replace(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn brrrr(_: &str, o: &mut Opts) -> Result<String, String> {
+fn brrrr(_: &str, o: &mut Opts) -> Result<Output, String> {
     let buy = o.positive(0)?;
     let rehab = o.num(1)?;
     let arv = o.positive(2)?;
@@ -837,7 +834,7 @@ fn brrrr(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn renovation_roi(_: &str, o: &mut Opts) -> Result<String, String> {
+fn renovation_roi(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cost = o.positive(0)?;
     let added = o.num(1)?;
     Ok(table(&[("Return", pct((added - cost) / cost * 100.0)), ("Recouped", pct(added / cost * 100.0)), ("Net", money(added - cost))]))
@@ -853,7 +850,7 @@ fn metric(o: &Opts, w: usize, h: usize) -> Result<(f64, f64), String> {
 const UNITS: super::Menu = &[("metric", "Metric (kg, cm)"), ("imperial", "Imperial (lb, in)")];
 const SEX: super::Menu = &[("female", "Female"), ("male", "Male")];
 
-fn bmi(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bmi(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (kg, cm) = metric(o, 0, 1)?;
     let m = cm / 100.0;
     let b = kg / (m * m);
@@ -884,12 +881,12 @@ const ACTIVITY: super::Menu = &[
     ("1.9", "Very hard, or a physical job"),
 ];
 
-fn bmr(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bmr(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = mifflin(o)?;
     Ok(table(&[("BMR (Mifflin–St Jeor)", format!("{} kcal a day", fmt(b, 0))), ("", "The energy used at complete rest.".into())]))
 }
 
-fn tdee(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tdee(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = mifflin(o)?;
     let f: f64 = o.choice(2).parse().unwrap_or(1.2);
     let t = b * f;
@@ -902,7 +899,7 @@ fn tdee(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn macros(_: &str, o: &mut Opts) -> Result<String, String> {
+fn macros(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kcal = o.positive(0)?;
     let (p, c, f) = match o.mode {
         "low-carb" => (0.3, 0.2, 0.5),
@@ -917,7 +914,7 @@ fn macros(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn body_fat(_: &str, o: &mut Opts) -> Result<String, String> {
+fn body_fat(_: &str, o: &mut Opts) -> Result<Output, String> {
     let k = if o.mode == "imperial" { 2.54 } else { 1.0 };
     let height = o.positive(0)? * k;
     let neck = o.positive(1)? * k;
@@ -946,7 +943,7 @@ fn body_fat(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Body fat (US Navy)", format!("{bf:.1}% — {class}"))]))
 }
 
-fn ideal_weight(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ideal_weight(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cm = o.positive(0)? * if o.mode == "imperial" { 2.54 } else { 1.0 };
     let over = (cm / 2.54 - 60.0).max(0.0);
     let male = o.choice(1) == "male";
@@ -961,7 +958,7 @@ fn ideal_weight(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn bsa(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bsa(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (kg, cm) = metric(o, 0, 1)?;
     Ok(table(&[
         ("Mosteller", format!("{} m²", fmt((kg * cm / 3600.0).sqrt(), 3))),
@@ -970,7 +967,7 @@ fn bsa(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn bac(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bac(_: &str, o: &mut Opts) -> Result<Output, String> {
     let drinks = o.num(0)?;
     let kg = o.positive(1)? * if o.mode == "imperial" { 0.45359237 } else { 1.0 };
     let hours = o.num(2)?;
@@ -984,7 +981,7 @@ fn bac(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn heart_zones(_: &str, o: &mut Opts) -> Result<String, String> {
+fn heart_zones(_: &str, o: &mut Opts) -> Result<Output, String> {
     let age = o.positive(0)?;
     let rest = o.opt_num(1)?;
     let max = o.opt_num(2)?.unwrap_or(208.0 - 0.7 * age);
@@ -1003,7 +1000,7 @@ fn heart_zones(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn one_rep_max(_: &str, o: &mut Opts) -> Result<String, String> {
+fn one_rep_max(_: &str, o: &mut Opts) -> Result<Output, String> {
     let w = o.positive(0)?;
     let reps = o.positive(1)?;
     if reps > 12.0 {
@@ -1041,7 +1038,7 @@ fn hms(secs: f64) -> String {
     if t >= 3600 { format!("{}:{:02}:{:02}", t / 3600, t % 3600 / 60, t % 60) } else { format!("{}:{:02}", t / 60, t % 60) }
 }
 
-fn pace(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pace(_: &str, o: &mut Opts) -> Result<Output, String> {
     let km = o.positive(0)? * if o.mode == "mi" { 1.609344 } else { 1.0 };
     let time = parse_clock(o.field(1)).filter(|t| *t > 0.0).ok_or("Write the time as h:mm:ss or mm:ss.")?;
     let per_km = time / km;
@@ -1055,7 +1052,7 @@ fn pace(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn splits(_: &str, o: &mut Opts) -> Result<String, String> {
+fn splits(_: &str, o: &mut Opts) -> Result<Output, String> {
     let total = o.positive(0)?;
     let time = parse_clock(o.field(1)).filter(|t| *t > 0.0).ok_or("Write the goal time as h:mm:ss or mm:ss.")?;
     let split = o.positive(2)?;
@@ -1063,16 +1060,16 @@ fn splits(_: &str, o: &mut Opts) -> Result<String, String> {
     if n > 500 {
         return Err("That makes too many splits.".into());
     }
-    let mut out = vec![format!("{:>8}  {:>10}  {:>10}", "At", "Split", "Elapsed")];
+    let mut out = Vec::new();
     for i in 1..=n {
         let at = (i as f64 * split).min(total);
         let prev = ((i - 1) as f64 * split).min(total);
-        out.push(format!("{:>8}  {:>10}  {:>10}", fmt(at, 2), hms((at - prev) / total * time), hms(at / total * time)));
+        out.push(vec![fmt(at, 2), hms((at - prev) / total * time), hms(at / total * time)]);
     }
-    Ok(out.join("\n"))
+    Ok(grid(&["At", "Split", "Elapsed"], out))
 }
 
-fn due_date(_: &str, o: &mut Opts) -> Result<String, String> {
+fn due_date(_: &str, o: &mut Opts) -> Result<Output, String> {
     let lmp = o.date(0)?;
     let cycle = o.opt_num(1)?.unwrap_or(28.0);
     let today = o.date(2)?;
@@ -1087,21 +1084,19 @@ fn due_date(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn ovulation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ovulation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let lmp = o.date(0)?;
     let cycle = o.opt_num(1)?.unwrap_or(28.0) as i64;
     let mut out = Vec::new();
     for k in 0..3 {
         let start = lmp + k * cycle;
         let ov = start + cycle - 14;
-        out.push(format!("Cycle {}: period {}, fertile {} to {}, ovulation about {}", k + 1, iso(start), iso(ov - 5), iso(ov + 1), iso(ov)));
+        out.push(vec![(k + 1).to_string(), iso(start), format!("{} to {}", iso(ov - 5), iso(ov + 1)), iso(ov)]);
     }
-    out.push(String::new());
-    out.push("An estimate from the calendar method; cycles vary.".into());
-    Ok(out.join("\n"))
+    Ok(grid(&["Cycle", "Period", "Fertile", "Ovulation, about"], out).note("An estimate from the calendar method; cycles vary."))
 }
 
-fn protein(_: &str, o: &mut Opts) -> Result<String, String> {
+fn protein(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kg = o.positive(0)? * if o.choice(1) == "lb" { 0.45359237 } else { 1.0 };
     let (lo, hi) = match o.mode {
         "active" => (1.2, 1.6),
@@ -1112,14 +1107,14 @@ fn protein(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Protein a day", format!("{} – {} g", fmt(kg * lo, 0), fmt(kg * hi, 0))), ("Per kilogram", format!("{lo} – {hi} g"))]))
 }
 
-fn water(_: &str, o: &mut Opts) -> Result<String, String> {
+fn water(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kg = o.positive(0)? * if o.choice(0) == "lb" { 0.45359237 } else { 1.0 };
     let exercise = o.opt_num(1)?.unwrap_or(0.0);
     let litres = kg * 0.033 + exercise / 30.0 * 0.35;
     Ok(table(&[("Water a day", format!("{} L ({} cups)", fmt(litres, 1), fmt(litres / 0.25, 0))), ("", "Food provides some of it; thirst is a good guide.".into())]))
 }
 
-fn sleep(_: &str, o: &mut Opts) -> Result<String, String> {
+fn sleep(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (hh, mm) = o.field(0).split_once(':').unwrap_or((o.field(0), "0"));
     let h = match (hh.trim().parse::<f64>(), mm.trim().parse::<f64>()) {
         (Ok(h), Ok(m)) if (0.0..24.0).contains(&h) && (0.0..60.0).contains(&m) => h + m / 60.0,
@@ -1127,17 +1122,17 @@ fn sleep(_: &str, o: &mut Opts) -> Result<String, String> {
     };
     let fall = o.opt_num(1)?.unwrap_or(15.0) / 60.0;
     let cycles = [6.0, 5.0, 4.0, 3.0];
-    let lines: Vec<String> = cycles
+    let lines: Vec<Vec<String>> = cycles
         .iter()
         .map(|c| {
             let at = if o.mode == "wake" { h - c * 1.5 - fall } else { h + c * 1.5 + fall };
-            format!("{}  ({} cycles, {} hours of sleep)", clock(at), c, fmt(c * 1.5, 1))
+            vec![clock(at), format!("{c} cycles"), format!("{} hours", fmt(c * 1.5, 1))]
         })
         .collect();
-    Ok(format!("{}\n\n{}", if o.mode == "wake" { "Go to bed at:" } else { "Wake up at:" }, lines.join("\n")))
+    Ok(grid(&[if o.mode == "wake" { "Go to bed at" } else { "Wake up at" }, "Sleep", "Hours"], lines))
 }
 
-fn blood_pressure(_: &str, o: &mut Opts) -> Result<String, String> {
+fn blood_pressure(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (s, d) = (o.positive(0)?, o.positive(1)?);
     let cat = if s > 180.0 || d > 120.0 {
         "Hypertensive crisis: get medical help now"
@@ -1153,7 +1148,7 @@ fn blood_pressure(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Category (AHA)", cat.into()), ("Pulse pressure", format!("{} mmHg", fmt(s - d, 0))), ("Mean arterial", format!("{} mmHg", fmt(d + (s - d) / 3.0, 0)))]))
 }
 
-fn blood_sugar(_: &str, o: &mut Opts) -> Result<String, String> {
+fn blood_sugar(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let mgdl = if o.mode == "mmol" { v * 18.0182 } else { v };
     let (state, note) = match mgdl {
@@ -1170,7 +1165,7 @@ fn blood_sugar(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn vo2(_: &str, o: &mut Opts) -> Result<String, String> {
+fn vo2(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = match o.mode {
         "cooper" => (o.positive(0)? - 504.9) / 44.73,
         _ => {
@@ -1184,7 +1179,7 @@ fn vo2(_: &str, o: &mut Opts) -> Result<String, String> {
 
 // Home, DIY and garden
 
-fn paint(_: &str, o: &mut Opts) -> Result<String, String> {
+fn paint(_: &str, o: &mut Opts) -> Result<Output, String> {
     let perimeter = o.positive(0)?;
     let height = o.positive(1)?;
     let doors = o.opt_num(2)?.unwrap_or(0.0);
@@ -1201,7 +1196,7 @@ fn paint(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn room_area(_: &str, o: &mut Opts) -> Result<String, String> {
+fn room_area(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (l, w) = (o.positive(0)?, o.positive(1)?);
     let h = o.opt_num(2)?;
     let u = if o.mode == "ft" { "ft" } else { "m" };
@@ -1213,7 +1208,7 @@ fn room_area(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn flooring(_: &str, o: &mut Opts) -> Result<String, String> {
+fn flooring(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)? * o.positive(1)?;
     let waste = o.opt_num(2)?.unwrap_or(10.0) / 100.0;
     let box_cover = o.opt_num(3)?;
@@ -1225,7 +1220,7 @@ fn flooring(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn tiles(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tiles(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)? * o.positive(1)?;
     let tile = o.positive(2)? * o.positive(3)? / 1e4;
     let gap = o.opt_num(4)?.unwrap_or(0.3) / 100.0;
@@ -1235,7 +1230,7 @@ fn tiles(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Area", format!("{} m²", fmt(area, 2))), ("Tile size", format!("{} m²", fmt(tile, 4))), ("Tiles", fmt(count.ceil(), 0))]))
 }
 
-fn grout(_: &str, o: &mut Opts) -> Result<String, String> {
+fn grout(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (tl, tw) = (o.positive(0)?, o.positive(1)?);
     let thick = o.positive(2)?;
     let joint = o.positive(3)?;
@@ -1245,7 +1240,7 @@ fn grout(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Grout", format!("{} kg", fmt(kg * 1.1, 2))), ("", "With 10% extra.".into())]))
 }
 
-fn wallpaper(_: &str, o: &mut Opts) -> Result<String, String> {
+fn wallpaper(_: &str, o: &mut Opts) -> Result<Output, String> {
     let perimeter = o.positive(0)?;
     let height = o.positive(1)?;
     let width = o.positive(2)?;
@@ -1260,14 +1255,14 @@ fn wallpaper(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Strips", fmt(strips, 0)), ("Strips a roll", fmt(per_roll, 0)), ("Rolls", fmt((strips / per_roll).ceil(), 0))]))
 }
 
-fn drywall(_: &str, o: &mut Opts) -> Result<String, String> {
+fn drywall(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)?;
     let sheet = o.positive(1)? * o.positive(2)?;
     let n = (area / sheet * 1.1).ceil();
     Ok(table(&[("Sheets", fmt(n, 0)), ("Screws (about 32 a sheet)", fmt(n * 32.0, 0)), ("Joint compound", format!("{} L", fmt(n * 1.8, 1))), ("Tape", format!("{} m", fmt(n * 11.0, 0)))]))
 }
 
-fn concrete(_: &str, o: &mut Opts) -> Result<String, String> {
+fn concrete(_: &str, o: &mut Opts) -> Result<Output, String> {
     let imperial = o.mode == "imperial";
     let (l, w, d) = (o.positive(0)?, o.positive(1)?, o.positive(2)?);
     let m3 = if imperial { l * w * d / 12.0 * 0.0283168 } else { l * w * d / 100.0 };
@@ -1280,7 +1275,7 @@ fn concrete(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn deck(_: &str, o: &mut Opts) -> Result<String, String> {
+fn deck(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (len, width) = (o.positive(0)?, o.positive(1)?);
     let board = o.positive(2)? / 100.0;
     let gap = o.opt_num(3)?.unwrap_or(0.5) / 100.0;
@@ -1295,7 +1290,7 @@ fn deck(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn fence(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fence(_: &str, o: &mut Opts) -> Result<Output, String> {
     let len = o.positive(0)?;
     let spacing = o.positive(1)?;
     let rails = o.opt_num(2)?.unwrap_or(2.0);
@@ -1309,7 +1304,7 @@ fn fence(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn board_feet(_: &str, o: &mut Opts) -> Result<String, String> {
+fn board_feet(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (t, w, l) = (o.positive(0)?, o.positive(1)?, o.positive(2)?);
     let n = o.opt_num(3)?.unwrap_or(1.0);
     let bf = t * w * l / 12.0 * n;
@@ -1320,7 +1315,7 @@ fn board_feet(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn mulch(_: &str, o: &mut Opts) -> Result<String, String> {
+fn mulch(_: &str, o: &mut Opts) -> Result<Output, String> {
     let imperial = o.mode == "imperial";
     let area = o.positive(0)? * o.positive(1)?;
     let depth = o.positive(2)?;
@@ -1332,7 +1327,7 @@ fn mulch(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn stairs(_: &str, o: &mut Opts) -> Result<String, String> {
+fn stairs(_: &str, o: &mut Opts) -> Result<Output, String> {
     let rise = o.positive(0)?;
     let ideal = o.opt_num(1)?.unwrap_or(18.0);
     let tread = o.opt_num(2)?.unwrap_or(28.0);
@@ -1351,7 +1346,7 @@ fn stairs(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn curtains(_: &str, o: &mut Opts) -> Result<String, String> {
+fn curtains(_: &str, o: &mut Opts) -> Result<Output, String> {
     let width = o.positive(0)?;
     let drop = o.positive(1)?;
     let fullness: f64 = o.mode.parse().unwrap_or(2.0);
@@ -1365,7 +1360,7 @@ fn curtains(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn ac_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ac_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let sqft = o.positive(0)? * if o.choice(0) == "m2" { 10.7639 } else { 1.0 };
     let people = o.opt_num(1)?.unwrap_or(2.0);
     let mut btu = sqft * 20.0;
@@ -1381,7 +1376,7 @@ fn ac_size(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Cooling", format!("{} BTU/h", fmt(btu.round(), 0))), ("", format!("{} kW, {} tons", fmt(btu * 0.000293071, 2), fmt(btu / 12000.0, 2)))]))
 }
 
-fn energy_cost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn energy_cost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let watts = o.positive(0)?;
     let hours = o.positive(1)?;
     let price = o.num(2)?;
@@ -1394,7 +1389,7 @@ fn energy_cost(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn split_by(text: &str, total: f64, what: &str) -> Result<String, String> {
+fn split_by(text: &str, total: f64, what: &str) -> Result<Output, String> {
     let people = rows(text, 1)?;
     let sum: f64 = people.iter().map(|p| p.1[0]).sum();
     if sum <= 0.0 {
@@ -1405,11 +1400,11 @@ fn split_by(text: &str, total: f64, what: &str) -> Result<String, String> {
     Ok(table(&out.iter().map(|(a, b)| (a.as_str(), b.clone())).collect::<Vec<_>>()))
 }
 
-fn bill_split(text: &str, o: &mut Opts) -> Result<String, String> {
+fn bill_split(text: &str, o: &mut Opts) -> Result<Output, String> {
     split_by(text, o.positive(0)?, "days at home")
 }
 
-fn rent_split(text: &str, o: &mut Opts) -> Result<String, String> {
+fn rent_split(text: &str, o: &mut Opts) -> Result<Output, String> {
     let total = o.positive(0)?;
     let shared = o.opt_num(1)?.unwrap_or(30.0) / 100.0;
     let people = rows(text, 1)?;
@@ -1423,7 +1418,7 @@ fn rent_split(text: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&out.iter().map(|(a, b)| (a.as_str(), b.clone())).collect::<Vec<_>>()))
 }
 
-fn solar(_: &str, o: &mut Opts) -> Result<String, String> {
+fn solar(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kwh = o.positive(0)? * 12.0;
     let sun = o.positive(1)?;
     let panel = o.positive(2)?;
@@ -1440,7 +1435,7 @@ fn solar(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn tv_distance(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tv_distance(_: &str, o: &mut Opts) -> Result<Output, String> {
     let d = o.positive(0)?;
     let (w, _) = (d * 16.0 / (337f64).sqrt(), d * 9.0 / (337f64).sqrt());
     // Distances for a 30° (SMPTE) and 40° (THX) field of view.
@@ -1454,7 +1449,7 @@ fn tv_distance(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn lighting(_: &str, o: &mut Opts) -> Result<String, String> {
+fn lighting(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)? * if o.choice(1) == "ft2" { 0.092903 } else { 1.0 };
     let lux: f64 = o.mode.parse().unwrap_or(150.0);
     let lumens = area * lux;
@@ -1465,7 +1460,7 @@ fn lighting(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn moving_boxes(_: &str, o: &mut Opts) -> Result<String, String> {
+fn moving_boxes(_: &str, o: &mut Opts) -> Result<Output, String> {
     let rooms = o.positive(0)?;
     let people = o.opt_num(1)?.unwrap_or(1.0);
     let base = rooms * 10.0 + people * 10.0;
@@ -1483,7 +1478,7 @@ fn moving_boxes(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn water_usage(_: &str, o: &mut Opts) -> Result<String, String> {
+fn water_usage(_: &str, o: &mut Opts) -> Result<Output, String> {
     let people = o.positive(0)?;
     let shower = o.num(1)? * 9.0;
     let flushes = o.num(2)? * 6.0;
@@ -1493,7 +1488,7 @@ fn water_usage(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Litres a day", fmt(day, 0)), ("A month", format!("{} m³", fmt(day * 30.44 / 1000.0, 2))), ("A year", format!("{} m³", fmt(day * 365.0 / 1000.0, 1)))]))
 }
 
-fn commute_co2(_: &str, o: &mut Opts) -> Result<String, String> {
+fn commute_co2(_: &str, o: &mut Opts) -> Result<Output, String> {
     let km = o.positive(0)? * 2.0;
     let days = o.opt_num(1)?.unwrap_or(220.0);
     let modes = [("Petrol car", 0.17), ("Diesel car", 0.16), ("Electric car", 0.05), ("Bus", 0.10), ("Train", 0.035), ("Motorbike", 0.11), ("Bike or walk", 0.0)];
@@ -1502,7 +1497,7 @@ fn commute_co2(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn trees(_: &str, o: &mut Opts) -> Result<String, String> {
+fn trees(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.positive(0)?;
     let years = o.opt_num(1)?.unwrap_or(1.0);
     let kg = n * 22.0 * years;
@@ -1513,20 +1508,20 @@ fn trees(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn plant_spacing(_: &str, o: &mut Opts) -> Result<String, String> {
+fn plant_spacing(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)? * o.positive(1)? * 1e4;
     let s = o.positive(2)?;
     let n = if o.mode == "triangle" { area / (s * s * 0.866) } else { area / (s * s) };
     Ok(table(&[("Plants", fmt(n.floor(), 0))]))
 }
 
-fn lawn_seed(_: &str, o: &mut Opts) -> Result<String, String> {
+fn lawn_seed(_: &str, o: &mut Opts) -> Result<Output, String> {
     let area = o.positive(0)?;
     let rate = o.opt_num(1)?.unwrap_or(if o.mode == "overseed" { 20.0 } else { 40.0 });
     Ok(table(&[("Seed", format!("{} kg", fmt(area * rate / 1000.0, 2))), ("Rate", format!("{} g/m²", fmt(rate, 0)))]))
 }
 
-fn compost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn compost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let greens = o.num(0)?;
     let browns = o.num(1)?;
     // Typical C:N: greens 20:1, browns 60:1, as equal volumes.
@@ -1539,7 +1534,7 @@ fn compost(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("C:N ratio", format!("{}:1", fmt(ratio, 0))), ("", verdict.into())]))
 }
 
-fn fertilizer(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fertilizer(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n_pct = o.positive(0)? / 100.0;
     let area = o.positive(1)?;
     let target = o.opt_num(2)?.unwrap_or(5.0);
@@ -1547,20 +1542,20 @@ fn fertilizer(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Product", format!("{} g ({} kg)", fmt(grams, 0), fmt(grams / 1000.0, 2))), ("Nitrogen", format!("{} g/m²", fmt(target, 1)))]))
 }
 
-fn harvest(_: &str, o: &mut Opts) -> Result<String, String> {
+fn harvest(_: &str, o: &mut Opts) -> Result<Output, String> {
     let sown = o.date(0)?;
     let days = o.int(1)?;
     Ok(table(&[("Harvest from", iso(sown + days)), ("", format!("{} days after {}", days, iso(sown)))]))
 }
 
-fn seed_start(_: &str, o: &mut Opts) -> Result<String, String> {
+fn seed_start(_: &str, o: &mut Opts) -> Result<Output, String> {
     let frost = o.date(0)?;
     let weeks = o.num(1)?;
     let start = frost - (weeks * 7.0) as i64;
     Ok(table(&[("Start indoors", iso(start)), ("Transplant after", iso(frost + 7))]))
 }
 
-fn aquarium(_: &str, o: &mut Opts) -> Result<String, String> {
+fn aquarium(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (l, w, h) = (o.positive(0)?, o.positive(1)?, o.positive(2)?);
     let litres = if o.mode == "in" { l * w * h * 0.0163871 } else { l * w * h / 1000.0 };
     Ok(table(&[
@@ -1570,7 +1565,7 @@ fn aquarium(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn pet_food(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pet_food(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kg = o.positive(0)? * if o.choice(2) == "lb" { 0.45359237 } else { 1.0 };
     let rer = 70.0 * kg.powf(0.75);
     let factor: f64 = o.choice(1).parse().unwrap_or(1.6);
@@ -1582,7 +1577,7 @@ fn pet_food(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn pet_age(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pet_age(_: &str, o: &mut Opts) -> Result<Output, String> {
     let y = o.positive(0)?;
     let human = match o.mode {
         "cat" => {
@@ -1607,7 +1602,7 @@ const COOKING_UNITS: &[(&str, f64)] = &[
     ("g", -1.0), ("kg", -1000.0), ("oz", -28.3495), ("lb", -453.592),
 ];
 
-fn cooking_units(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cooking_units(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let density: f64 = o.choice(2).parse().unwrap_or(1.0);
     let unit = |id: &str| COOKING_UNITS.iter().find(|u| u.0 == id).map_or(1.0, |u| u.1);
@@ -1616,10 +1611,10 @@ fn cooking_units(_: &str, o: &mut Opts) -> Result<String, String> {
     let base_ml = if from > 0.0 { v * from } else { v * -from / density };
     let out = if to > 0.0 { base_ml / to } else { base_ml * density / -to };
     let ing = if (from > 0.0) != (to > 0.0) { " (by the ingredient's density)" } else { "" };
-    Ok(format!("{} {} = {} {}{ing}", fmt(v, 3), o.mode, fmt(out, 3), o.choice(1)))
+    Ok(table(&[(&format!("{} {}", fmt(v, 3), o.mode), format!("{} {}{ing}", fmt(out, 3), o.choice(1)))]))
 }
 
-fn oven(_: &str, o: &mut Opts) -> Result<String, String> {
+fn oven(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let c = match o.mode {
         "f" => (v - 32.0) / 1.8,
@@ -1637,7 +1632,7 @@ fn oven(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn air_fryer(_: &str, o: &mut Opts) -> Result<String, String> {
+fn air_fryer(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = o.num(0)?;
     let minutes = o.positive(1)?;
     let f = o.mode == "f";
@@ -1680,7 +1675,7 @@ fn nice_amount(v: f64) -> String {
     fmt(v, 2)
 }
 
-fn recipe_scale(text: &str, o: &mut Opts) -> Result<String, String> {
+fn recipe_scale(text: &str, o: &mut Opts) -> Result<Output, String> {
     let k = o.positive(1)? / o.positive(0)?;
     Ok(text
         .lines()
@@ -1689,10 +1684,11 @@ fn recipe_scale(text: &str, o: &mut Opts) -> Result<String, String> {
             _ => l.to_owned(),
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")
+        .into())
 }
 
-fn bakers(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bakers(_: &str, o: &mut Opts) -> Result<Output, String> {
     let flour = o.positive(0)?;
     let water = o.num(1)? / 100.0;
     let salt = o.num(2)? / 100.0;
@@ -1707,7 +1703,7 @@ fn bakers(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn sourdough(_: &str, o: &mut Opts) -> Result<String, String> {
+fn sourdough(_: &str, o: &mut Opts) -> Result<Output, String> {
     let flour = o.positive(0)?;
     let water = o.num(1)?;
     let starter = o.num(2)?;
@@ -1722,17 +1718,17 @@ fn sourdough(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn coffee(_: &str, o: &mut Opts) -> Result<String, String> {
+fn coffee(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let ratio: f64 = o.choice(1).parse().unwrap_or(16.0);
     Ok(if o.mode == "water" {
-        format!("{} g of coffee for {} g of water (1:{ratio})", fmt(v / ratio, 1), fmt(v, 0))
+        table(&[("Coffee", format!("{} g", fmt(v / ratio, 1))), ("Water", format!("{} g", fmt(v, 0))), ("Ratio", format!("1:{ratio}"))])
     } else {
-        format!("{} g of water for {} g of coffee (1:{ratio})", fmt(v * ratio, 0), fmt(v, 1))
+        table(&[("Water", format!("{} g", fmt(v * ratio, 0))), ("Coffee", format!("{} g", fmt(v, 1))), ("Ratio", format!("1:{ratio}"))])
     })
 }
 
-fn brine(_: &str, o: &mut Opts) -> Result<String, String> {
+fn brine(_: &str, o: &mut Opts) -> Result<Output, String> {
     let water = o.positive(0)?;
     let salinity = o.positive(1)? / 100.0;
     let sugar = o.opt_num(2)?.unwrap_or(0.0) / 100.0;
@@ -1751,7 +1747,7 @@ fn pan_area(kind: &str, a: f64, b: f64) -> f64 {
     }
 }
 
-fn pan_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pan_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let from = pan_area(o.mode, o.positive(0)?, o.opt_num(1)?.unwrap_or(0.0));
     let to = pan_area(o.choice(1), o.positive(2)?, o.opt_num(3)?.unwrap_or(0.0));
     if from <= 0.0 || to <= 0.0 {
@@ -1760,7 +1756,7 @@ fn pan_size(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Scale the recipe by", fmt(to / from, 2)), ("Area", format!("{} → {}", fmt(from, 0), fmt(to, 0)))]))
 }
 
-fn eggs(_: &str, o: &mut Opts) -> Result<String, String> {
+fn eggs(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.positive(0)?;
     let sizes = [("small", "Small", 43.0), ("medium", "Medium", 50.0), ("large", "Large", 57.0), ("xl", "Extra large", 64.0), ("jumbo", "Jumbo", 71.0)];
     let w = sizes.iter().find(|s| s.0 == o.mode).map_or(57.0, |s| s.2) * n;
@@ -1769,7 +1765,7 @@ fn eggs(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn abv(_: &str, o: &mut Opts) -> Result<String, String> {
+fn abv(_: &str, o: &mut Opts) -> Result<Output, String> {
     let og = o.positive(0)?;
     let fg = o.positive(1)?;
     let a = (og - fg) * 131.25;
@@ -1785,7 +1781,7 @@ fn abv(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn defrost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn defrost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kg = o.positive(0)? * if o.choice(1) == "lb" { 0.45359237 } else { 1.0 };
     let hours = match o.mode {
         "water" => kg / 0.45359237 * 0.5,
@@ -1811,7 +1807,7 @@ Medium                     63       145
 Medium well                68       155
 Well done                  71+      160+";
 
-fn doneness(_: &str, o: &mut Opts) -> Result<String, String> {
+fn doneness(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(DONENESS, o.field(0))
 }
 
@@ -1834,52 +1830,61 @@ Sesame oil (unrefined)     177     350
 Butter                     150     302
 Flaxseed oil               107     225";
 
-fn smoke_points(_: &str, o: &mut Opts) -> Result<String, String> {
+fn smoke_points(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(SMOKE_POINTS, o.field(0))
 }
 
 const SUBSTITUTES: &str = "\
-1 cup buttermilk       = 1 cup milk + 1 tbsp lemon juice or vinegar, rested 5 minutes
-1 egg (baking)         = 1 tbsp ground flax + 3 tbsp water, or ¼ cup applesauce
-1 cup butter           = ⅞ cup oil, or 1 cup margarine
-1 cup sugar            = ¾ cup honey (less liquid elsewhere), or 1 cup brown sugar
-1 cup brown sugar      = 1 cup sugar + 1 tbsp molasses
-1 tsp baking powder    = ¼ tsp baking soda + ½ tsp cream of tartar
-1 cup cake flour       = 1 cup flour − 2 tbsp, + 2 tbsp cornstarch
-1 cup self-rising flour = 1 cup flour + 1½ tsp baking powder + ¼ tsp salt
-1 tbsp cornstarch      = 2 tbsp flour (to thicken)
-1 cup heavy cream      = ¾ cup milk + ¼ cup melted butter (not for whipping)
-1 cup sour cream       = 1 cup plain yogurt
-1 cup wine             = 1 cup broth + 1 tbsp vinegar
-1 tbsp fresh herbs     = 1 tsp dried herbs
-1 clove garlic         = ⅛ tsp garlic powder
-1 cup milk             = ½ cup evaporated milk + ½ cup water
-1 oz chocolate         = 3 tbsp cocoa + 1 tbsp butter or oil
-1 tsp lemon juice      = ½ tsp vinegar
-1 cup breadcrumbs      = ¾ cup crushed crackers or oats";
+Instead of                Use
+1 cup buttermilk          1 cup milk + 1 tbsp lemon juice or vinegar, rested 5 minutes
+1 egg (baking)            1 tbsp ground flax + 3 tbsp water, or ¼ cup applesauce
+1 cup butter              ⅞ cup oil, or 1 cup margarine
+1 cup sugar               ¾ cup honey (less liquid elsewhere), or 1 cup brown sugar
+1 cup brown sugar         1 cup sugar + 1 tbsp molasses
+1 tsp baking powder       ¼ tsp baking soda + ½ tsp cream of tartar
+1 cup cake flour          1 cup flour − 2 tbsp, + 2 tbsp cornstarch
+1 cup self-rising flour   1 cup flour + 1½ tsp baking powder + ¼ tsp salt
+1 tbsp cornstarch         2 tbsp flour (to thicken)
+1 cup heavy cream         ¾ cup milk + ¼ cup melted butter (not for whipping)
+1 cup sour cream          1 cup plain yogurt
+1 cup wine                1 cup broth + 1 tbsp vinegar
+1 tbsp fresh herbs        1 tsp dried herbs
+1 clove garlic            ⅛ tsp garlic powder
+1 cup milk                ½ cup evaporated milk + ½ cup water
+1 oz chocolate            3 tbsp cocoa + 1 tbsp butter or oil
+1 tsp lemon juice         ½ tsp vinegar
+1 cup breadcrumbs         ¾ cup crushed crackers or oats";
 
-fn substitutes(_: &str, o: &mut Opts) -> Result<String, String> {
+fn substitutes(_: &str, o: &mut Opts) -> Result<Output, String> {
     reference(SUBSTITUTES, o.field(0))
 }
 
-/// The lines of a reference table, filtered by `query`; the header stays.
-pub fn reference(table: &str, query: &str) -> Result<String, String> {
+/// The rows of a reference table that match `query`. The table is written
+/// in columns at least two spaces apart, a header first; a blank line starts
+/// another table, and a line without columns is a remark about its table.
+pub fn reference(table: &str, query: &str) -> Result<Output, String> {
     let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return Ok(table.to_owned());
+    let cells = |l: &str| l.split("  ").map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let mut out = Output::default();
+    for section in table.split("\n\n") {
+        let mut lines = section.lines();
+        let head = cells(lines.next().unwrap_or(""));
+        let (rows, notes): (Vec<&str>, Vec<&str>) = lines.partition(|l| l.contains("  "));
+        let rows: Vec<Vec<String>> = rows.into_iter().filter(|l| l.to_lowercase().contains(&q)).map(cells).collect();
+        if !rows.is_empty() {
+            out = out.table(&head.iter().map(String::as_str).collect::<Vec<_>>(), rows);
+            out = notes.into_iter().fold(out, Output::note);
+        }
     }
-    let mut lines = table.lines();
-    let header = lines.next().unwrap_or("");
-    let found: Vec<&str> = lines.filter(|l| l.to_lowercase().contains(&q)).collect();
-    if found.is_empty() {
+    if out.blocks.is_empty() {
         return Err(format!("Nothing matches “{query}”."));
     }
-    Ok(std::iter::once(header).chain(found).collect::<Vec<_>>().join("\n"))
+    Ok(out)
 }
 
 // Automotive, travel and geo
 
-fn fuel_cost(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fuel_cost(_: &str, o: &mut Opts) -> Result<Output, String> {
     let distance = o.positive(0)?;
     let eff = o.positive(1)?;
     let price = o.positive(2)?;
@@ -1896,7 +1901,7 @@ fn fuel_cost(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&r))
 }
 
-fn car_loan(_: &str, o: &mut Opts) -> Result<String, String> {
+fn car_loan(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let tax = o.opt_num(4)?.unwrap_or(0.0) / 100.0;
     let down = o.opt_num(1)?.unwrap_or(0.0);
@@ -1913,7 +1918,7 @@ fn car_loan(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn depreciation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn depreciation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let price = o.positive(0)?;
     let years = o.positive(1)?;
     let first = o.opt_num(2)?.unwrap_or(20.0) / 100.0;
@@ -1922,12 +1927,12 @@ fn depreciation(_: &str, o: &mut Opts) -> Result<String, String> {
     let mut out = Vec::new();
     for y in 1..=(years.ceil() as usize).min(30) {
         v *= 1.0 - if y == 1 { first } else { later };
-        out.push(format!("Year {y:>2}: {}", money(v)));
+        out.push(vec![y.to_string(), money(v)]);
     }
-    Ok(format!("{}\n\n{}", table(&[("Value", money(v)), ("Lost", format!("{} ({})", money(price - v), pct((1.0 - v / price) * 100.0)))]), out.join("\n")))
+    Ok(table(&[("Value", money(v)), ("Lost", format!("{} ({})", money(price - v), pct((1.0 - v / price) * 100.0)))]).table(&["Year", "Value"], out))
 }
 
-fn ev_range(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ev_range(_: &str, o: &mut Opts) -> Result<Output, String> {
     let kwh = o.positive(0)?;
     let eff = o.positive(1)?;
     let soc = o.opt_num(2)?.unwrap_or(100.0) / 100.0;
@@ -1943,7 +1948,7 @@ fn tire(s: &str) -> Option<(f64, f64, f64)> {
     Some((c[1].parse().ok()?, c[2].parse().ok()?, c[3].parse().ok()?))
 }
 
-fn tire_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tire_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = tire(o.field(0)).ok_or("Write a size such as 225/45R17.")?;
     let dia = |(w, r, rim): (f64, f64, f64)| rim * 25.4 + 2.0 * w * r / 100.0;
     let d = dia(a);
@@ -1961,7 +1966,7 @@ fn tire_size(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn towing(_: &str, o: &mut Opts) -> Result<String, String> {
+fn towing(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cap = o.positive(0)?;
     let trailer = o.positive(1)?;
     let cargo = o.opt_num(2)?.unwrap_or(0.0);
@@ -1975,7 +1980,7 @@ fn towing(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Load", fmt(load, 0)), ("Of capacity", pct(share * 100.0)), ("Tongue weight (10–15%)", format!("{} – {}", fmt(load * 0.1, 0), fmt(load * 0.15, 0))), ("", verdict.into())]))
 }
 
-fn luggage(text: &str, o: &mut Opts) -> Result<String, String> {
+fn luggage(text: &str, o: &mut Opts) -> Result<Output, String> {
     let items = rows(text, 1)?;
     let limit = o.positive(0)?;
     let lb = o.mode == "lb";
@@ -1985,7 +1990,7 @@ fn luggage(text: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Total", format!("{} kg · {} lb", fmt(kg, 2), fmt(pounds, 2))), ("", verdict)]))
 }
 
-fn travel_budget(_: &str, o: &mut Opts) -> Result<String, String> {
+fn travel_budget(_: &str, o: &mut Opts) -> Result<Output, String> {
     let days = o.positive(0)?;
     let people = o.opt_num(1)?.unwrap_or(1.0).max(1.0);
     let lodging = o.opt_num(2)?.unwrap_or(0.0);
@@ -2028,7 +2033,7 @@ fn coords(o: &Opts, i: usize) -> Result<(f64, f64), String> {
     Ok((lat, lon))
 }
 
-fn distance(_: &str, o: &mut Opts) -> Result<String, String> {
+fn distance(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = (coords(o, 0)?, coords(o, 2)?);
     let km = haversine(a.0, a.1, b.0, b.1);
     Ok(table(&[
@@ -2046,7 +2051,7 @@ fn bearing_deg(a: (f64, f64), b: (f64, f64)) -> f64 {
     (y.atan2(x).to_degrees() + 360.0) % 360.0
 }
 
-fn bearing(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bearing(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = (coords(o, 0)?, coords(o, 2)?);
     let deg = bearing_deg(a, b);
     let points = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -2065,7 +2070,7 @@ fn dms(v: f64, pos: char, neg: char) -> String {
     format!("{d}°{m:02}′{s:05.2}″{}", if v < 0.0 { neg } else { pos })
 }
 
-fn coordinate_convert(_: &str, o: &mut Opts) -> Result<String, String> {
+fn coordinate_convert(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (lat, lon) = coords(o, 0)?;
     Ok(table(&[
         ("Decimal degrees", format!("{lat:.6}, {lon:.6}")),
@@ -2074,7 +2079,7 @@ fn coordinate_convert(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn flight_time(_: &str, o: &mut Opts) -> Result<String, String> {
+fn flight_time(_: &str, o: &mut Opts) -> Result<Output, String> {
     let km = match o.mode {
         "coords" => {
             let (a, b) = (coords(o, 1)?, coords(o, 3)?);
@@ -2492,7 +2497,7 @@ pub const COOKING: &[Tool] = &[
         .fields(&[("Water (litres)", "2"), ("Salt (%)", "6"), ("Sugar (%)", "3")]),
     tool("pan-size", "Pan size converter", "How much to scale a recipe for another pan.", pan_size)
         .form()
-        .fields(&[("Recipe pan size", "23"), ("Its other side (rectangles)", ""), ("Your pan size", "20"), ("Its other side (rectangles)", "")])
+        .fields(&[("Recipe pan size", "23"), ("Recipe pan, other side (rectangles)", ""), ("Your pan size", "20"), ("Your pan, other side (rectangles)", "")])
         .selects(&[
             ("Recipe pan", &[("round", "Round (diameter)"), ("square", "Square"), ("rect", "Rectangle")]),
             ("Your pan", &[("square", "Square"), ("round", "Round (diameter)"), ("rect", "Rectangle")]),
@@ -2562,7 +2567,7 @@ mod tests {
     fn run(f: super::super::Run, fields: &[&str], choices: &[&str]) -> String {
         let mut rng = Rng(1);
         let mut o = Opts::new("", &mut rng).with(fields, choices, &[]);
-        f("", &mut o).unwrap()
+        f("", &mut o).unwrap().plain()
     }
 
     #[test]
@@ -2580,7 +2585,7 @@ mod tests {
         assert_eq!(leading_amount("1/4 cup").map(|a| a.0), Some(0.25));
         let mut rng = Rng(1);
         let mut o = Opts::new("", &mut rng).with(&["2", "3"], &[], &[]);
-        assert_eq!(recipe_scale("1 cup milk\n1/2 tsp salt\nPinch", &mut o).unwrap(), "1½ cup milk\n¾ tsp salt\nPinch");
+        assert_eq!(recipe_scale("1 cup milk\n1/2 tsp salt\nPinch", &mut o).unwrap().plain(), "1½ cup milk\n¾ tsp salt\nPinch");
     }
 
     #[test]

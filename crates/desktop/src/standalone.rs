@@ -24,7 +24,8 @@ use std::rc::Rc;
 /// The application id of the app at `address`: the browser's, followed by a
 /// hash of its `hyperb://` form, so every way of writing it gets the same.
 pub fn app_id(address: &str) -> String {
-    let address = address::normalize(address)
+    let address = address::absolute_file(address);
+    let address = address::normalize(&address)
         .map(|u| address::hyperb(&u))
         .unwrap_or_else(|_| address.to_string());
     let hash =

@@ -1,7 +1,8 @@
 //! Calculators, math, number systems and statistics.
 
+use super::Output;
 use super::calc::numbers;
-use super::{Opts, Tool, fmt, table, tool};
+use super::{Opts, Tool, fmt, grid, table, tool, verdict};
 
 // Expressions
 
@@ -351,14 +352,13 @@ pub fn gcd(a: u128, b: u128) -> u128 {
 
 /// Evaluates each line; `name = expression` defines a variable and `ans` is
 /// the previous result.
-fn calculator(text: &str, o: &mut Opts) -> Result<String, String> {
+fn calculator(text: &str, o: &mut Opts) -> Result<Output, String> {
     let degrees = o.mode == "deg";
     let mut vars: Vec<(String, f64)> = Vec::new();
     let mut out = Vec::new();
     for line in text.lines() {
         let l = line.split('#').next().unwrap_or("").trim();
         if l.is_empty() {
-            out.push(String::new());
             continue;
         }
         let (name, expr) = match l.split_once('=') {
@@ -371,9 +371,9 @@ fn calculator(text: &str, o: &mut Opts) -> Result<String, String> {
             vars.push((n.to_owned(), v));
         }
         let shown = if v.is_nan() { "not a number".into() } else { fmt(v, o.number.max(1)) };
-        out.push(format!("{l} = {shown}"));
+        out.push((l.to_owned(), shown));
     }
-    Ok(out.join("\n"))
+    Ok(table(&out.iter().map(|(l, v)| (l.as_str(), v.clone())).collect::<Vec<_>>()))
 }
 
 // Exact fractions
@@ -449,7 +449,7 @@ fn mixed(r: Ratio) -> String {
     format!("{}{} {}/{}", if r.0 < 0 { "-" } else { "" }, r.0.abs() / r.1, r.0.abs() % r.1, r.1)
 }
 
-fn fractions(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fractions(_: &str, o: &mut Opts) -> Result<Output, String> {
     let r: Ratio = eval(&parse_expr(o.field(0))?, &[], false)?;
     let mut rows = vec![("Result", if r.1 == 1 { r.0.to_string() } else { format!("{}/{}", r.0, r.1) })];
     if !mixed(r).is_empty() {
@@ -475,7 +475,7 @@ fn to_fraction(x: f64, eps: f64) -> (i128, i128) {
     (h1, k1)
 }
 
-fn simplify(_: &str, o: &mut Opts) -> Result<String, String> {
+fn simplify(_: &str, o: &mut Opts) -> Result<Output, String> {
     let s = o.field(0);
     if let Some((n, d)) = s.split_once('/') {
         let (n, d) = (n.trim().parse::<i128>().map_err(|_| "Write a fraction such as 42/56.")?, d.trim().parse::<i128>().map_err(|_| "Write a fraction such as 42/56.")?);
@@ -590,7 +590,7 @@ fn show_complex(z: C) -> String {
     }
 }
 
-fn complex(_: &str, o: &mut Opts) -> Result<String, String> {
+fn complex(_: &str, o: &mut Opts) -> Result<Output, String> {
     let z: C = eval(&parse_expr(o.field(0))?, &[], false)?;
     Ok(table(&[
         ("Result", show_complex(z)),
@@ -603,18 +603,22 @@ fn complex(_: &str, o: &mut Opts) -> Result<String, String> {
 
 // Calculators
 
-fn percentage(_: &str, o: &mut Opts) -> Result<String, String> {
+fn percentage(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = (o.num(0)?, o.num(1)?);
-    Ok(match o.mode {
-        "what-percent" => format!("{} is {}% of {}", fmt(a, 6), fmt(a / b * 100.0, 6), fmt(b, 6)),
-        "change" => format!("From {} to {} is a {} of {}%", fmt(a, 6), fmt(b, 6), if b >= a { "rise" } else { "fall" }, fmt(((b - a) / a * 100.0).abs(), 6)),
-        "whole" => format!("{} is {}% of {}", fmt(a, 6), fmt(b, 6), fmt(a / b * 100.0, 6)),
-        "difference" => format!("The difference between {} and {} is {}%", fmt(a, 6), fmt(b, 6), fmt((a - b).abs() / ((a + b) / 2.0) * 100.0, 6)),
-        _ => format!("{}% of {} is {}", fmt(a, 6), fmt(b, 6), fmt(a / 100.0 * b, 6)),
-    })
+    let (label, value) = match o.mode {
+        "what-percent" => (format!("{} of {}", fmt(a, 6), fmt(b, 6)), format!("{}%", fmt(a / b * 100.0, 6))),
+        "change" => (
+            format!("From {} to {}, a {}", fmt(a, 6), fmt(b, 6), if b >= a { "rise" } else { "fall" }),
+            format!("{}%", fmt(((b - a) / a * 100.0).abs(), 6)),
+        ),
+        "whole" => (format!("{} is {}% of", fmt(a, 6), fmt(b, 6)), fmt(a / b * 100.0, 6)),
+        "difference" => (format!("Difference between {} and {}", fmt(a, 6), fmt(b, 6)), format!("{}%", fmt((a - b).abs() / ((a + b) / 2.0) * 100.0, 6))),
+        _ => (format!("{}% of {}", fmt(a, 6), fmt(b, 6)), fmt(a / 100.0 * b, 6)),
+    };
+    Ok(table(&[(&label, value)]))
 }
 
-fn average(text: &str, o: &mut Opts) -> Result<String, String> {
+fn average(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "weighted" {
         let mut sum = 0.0;
         let mut weights = 0.0;
@@ -669,7 +673,7 @@ fn package(s: &str, kind: &str) -> Result<f64, String> {
         .ok_or_else(|| format!("“{unit}” is not a unit of {kind}; use {}.", table.iter().map(|u| u.0).collect::<Vec<_>>().join(", ")))
 }
 
-fn unit_price(text: &str, o: &mut Opts) -> Result<String, String> {
+fn unit_price(text: &str, o: &mut Opts) -> Result<Output, String> {
     let kind = o.mode;
     let sym = o.field(0);
     let (per, label) = match kind {
@@ -697,33 +701,27 @@ fn unit_price(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     items.sort_by(|a, b| a.3.total_cmp(&b.3));
     let best = items[0].3;
-    let width = items.iter().map(|i| i.0.chars().count()).max().unwrap_or(0).max(4);
     let mut out = Vec::new();
     for (i, (name, price, size, unit)) in items.iter().enumerate() {
         let tag = if i == 0 {
-            "★ Best value".to_owned()
+            "Best value".to_owned()
         } else if best > 0.0 {
-            format!("+{}% ", fmt((unit / best - 1.0) * 100.0, 1))
+            format!("+{}%", fmt((unit / best - 1.0) * 100.0, 1))
         } else {
             String::new()
         };
-        out.push(format!(
-            "{}. {name:<width$}  {sym}{} for {size:<8}  {sym}{} {label}  {tag}",
-            i + 1,
-            fmt(*price, 2),
-            fmt(*unit, 3)
-        ));
+        out.push(vec![name.clone(), format!("{sym}{} for {size}", fmt(*price, 2)), format!("{sym}{} {label}", fmt(*unit, 3)), tag]);
     }
+    let mut result = grid(&["", "Price", "Unit price", "Compared"], out);
     if items.len() > 1 {
         let worst = items.last().unwrap();
-        out.push(String::new());
-        out.push(format!(
+        result = result.note(format!(
             "The best value saves {}% over “{}”.",
             fmt((1.0 - best / worst.3) * 100.0, 1),
             worst.0
         ));
     }
-    Ok(out.join("\n"))
+    Ok(result)
 }
 
 // Math
@@ -754,7 +752,7 @@ fn poly_roots(coef: &[f64]) -> Vec<C> {
     roots
 }
 
-fn equation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn equation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mut coef = numbers(&o.field(0).replace(',', " "))?;
     while coef.first() == Some(&0.0) {
         coef.remove(0);
@@ -780,20 +778,19 @@ fn equation(_: &str, o: &mut Opts) -> Result<String, String> {
         let c_abs = if c.abs() == 1.0 && p > 0 { String::new() } else { fmt(c.abs(), 6) };
         terms.push(format!("{}{c_abs}{x}", if *c < 0.0 { "− " } else if terms.is_empty() { "" } else { "+ " }));
     }
-    let mut out = vec![format!("{} = 0", terms.join(" ")), String::new()];
+    let mut out = vec![("Equation".to_owned(), format!("{} = 0", terms.join(" ")))];
     if n == 2 {
         let (a, b, c) = (coef[0], coef[1], coef[2]);
-        out.push(format!("Discriminant: {}", fmt(b * b - 4.0 * a * c, 6)));
-        out.push(format!("Vertex: ({}, {})", fmt(-b / (2.0 * a), 6), fmt(c - b * b / (4.0 * a), 6)));
-        out.push(String::new());
+        out.push(("Discriminant".into(), fmt(b * b - 4.0 * a * c, 6)));
+        out.push(("Vertex".into(), format!("({}, {})", fmt(-b / (2.0 * a), 6), fmt(c - b * b / (4.0 * a), 6))));
     }
     let mut roots = poly_roots(&coef);
     roots.sort_by(|a, b| a.1.abs().total_cmp(&b.1.abs()).then(a.0.total_cmp(&b.0)));
     for (i, r) in roots.iter().enumerate() {
         let r = C(if r.0.abs() < 1e-10 { 0.0 } else { r.0 }, if r.1.abs() < 1e-9 { 0.0 } else { r.1 });
-        out.push(format!("x{} = {}", i + 1, show_complex(C((r.0 * 1e9).round() / 1e9, (r.1 * 1e9).round() / 1e9))));
+        out.push((format!("x{}", i + 1), show_complex(C((r.0 * 1e9).round() / 1e9, (r.1 * 1e9).round() / 1e9))));
     }
-    Ok(out.join("\n"))
+    Ok(table(&out.iter().map(|(l, v)| (l.as_str(), v.clone())).collect::<Vec<_>>()))
 }
 
 type Matrix = Vec<Vec<f64>>;
@@ -852,7 +849,7 @@ fn rref(mut m: Matrix) -> (Matrix, f64, usize) {
     (m, det, r)
 }
 
-fn matrix(text: &str, o: &mut Opts) -> Result<String, String> {
+fn matrix(text: &str, o: &mut Opts) -> Result<Output, String> {
     let (a_text, b_text) = match text.split_once("\n===") {
         Some((a, b)) => (a, Some(b.trim_start_matches('='))),
         None => (text, None),
@@ -865,7 +862,7 @@ fn matrix(text: &str, o: &mut Opts) -> Result<String, String> {
         "det" => {
             square(&a)?;
             let (_, det, rank) = rref(a.clone());
-            format!("Determinant: {}", fmt(if rank < a.len() { 0.0 } else { det }, 10))
+            table(&[("Determinant", fmt(if rank < a.len() { 0.0 } else { det }, 10))])
         }
         "inverse" => {
             square(&a)?;
@@ -875,11 +872,11 @@ fn matrix(text: &str, o: &mut Opts) -> Result<String, String> {
             if (0..n).any(|i| (m[i][i] - 1.0).abs() > 1e-9) {
                 return Err("The matrix is singular: it has no inverse.".into());
             }
-            show_matrix(&m.iter().map(|r| r[n..].to_vec()).collect())
+            show_matrix(&m.iter().map(|r| r[n..].to_vec()).collect()).into()
         }
-        "transpose" => show_matrix(&(0..a[0].len()).map(|j| a.iter().map(|r| r[j]).collect()).collect()),
-        "rank" => format!("Rank: {}", rref(a).2),
-        "rref" => show_matrix(&rref(a).0),
+        "transpose" => show_matrix(&(0..a[0].len()).map(|j| a.iter().map(|r| r[j]).collect()).collect()).into(),
+        "rank" => table(&[("Rank", rref(a).2.to_string())]),
+        "rref" => show_matrix(&rref(a).0).into(),
         "solve" => {
             let n = a.len();
             if a[0].len() != n + 1 {
@@ -889,14 +886,15 @@ fn matrix(text: &str, o: &mut Opts) -> Result<String, String> {
             if rank < n {
                 return Err("The system has no single solution.".into());
             }
-            (0..n).map(|i| format!("x{} = {}", i + 1, fmt(m[i][n], 10))).collect::<Vec<_>>().join("\n")
+            let names: Vec<String> = (1..=n).map(|i| format!("x{i}")).collect();
+            table(&(0..n).map(|i| (names[i].as_str(), fmt(m[i][n], 10))).collect::<Vec<_>>())
         }
         "multiply" => {
             let b = need_b()?;
             if a[0].len() != b.len() {
                 return Err("The first matrix needs as many columns as the second has rows.".into());
             }
-            show_matrix(&a.iter().map(|r| (0..b[0].len()).map(|j| r.iter().zip(&b).map(|(x, br)| x * br[j]).sum()).collect()).collect())
+            show_matrix(&a.iter().map(|r| (0..b[0].len()).map(|j| r.iter().zip(&b).map(|(x, br)| x * br[j]).sum()).collect()).collect()).into()
         }
         op => {
             let b = need_b()?;
@@ -904,7 +902,7 @@ fn matrix(text: &str, o: &mut Opts) -> Result<String, String> {
                 return Err("The matrices need the same size.".into());
             }
             let s = if op == "subtract" { -1.0 } else { 1.0 };
-            show_matrix(&a.iter().zip(&b).map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + s * q).collect()).collect())
+            show_matrix(&a.iter().zip(&b).map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + s * q).collect()).collect()).into()
         }
     })
 }
@@ -952,7 +950,7 @@ impl Big {
     }
 }
 
-fn factorial(_: &str, o: &mut Opts) -> Result<String, String> {
+fn factorial(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.int(0)?;
     if !(0..=3000).contains(&n) {
         return Err("Factorials go from 0! to 3000! here.".into());
@@ -962,11 +960,11 @@ fn factorial(_: &str, o: &mut Opts) -> Result<String, String> {
         f.mul_small(k);
     }
     let d = f.digits();
-    o.info = Some(format!("{} digits", d.len()));
-    Ok(format!("{n}! = {d}"))
+    let digits = d.len();
+    Ok(Output::default().code(d).note(format!("{n}! has {digits} digit{}.", if digits == 1 { "" } else { "s" })))
 }
 
-fn fibonacci(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fibonacci(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.int(0)?;
     if !(0..=10000).contains(&n) {
         return Err("Up to the 10,000th Fibonacci number.".into());
@@ -982,11 +980,12 @@ fn fibonacci(_: &str, o: &mut Opts) -> Result<String, String> {
         b = c;
     }
     let d = a.digits();
-    o.info = Some(format!("{} digits", d.len()));
-    Ok(if o.flag { format!("F({n}) = {d}\n\n{}", list.join(", ")) } else { format!("F({n}) = {d}") })
+    let digits = d.len();
+    let out = Output::default().code(d).note(format!("F({n}) has {digits} digit{}.", if digits == 1 { "" } else { "s" }));
+    Ok(if o.flag { out.text(list.join(", ")) } else { out })
 }
 
-fn gcd_lcm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gcd_lcm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v: Vec<u128> = numbers(&o.field(0).replace(',', " "))?
         .iter()
         .map(|x| if x.fract() == 0.0 && *x >= 0.0 && *x < 1e18 { Ok(*x as u128) } else { Err(format!("“{x}” is not a whole number.")) })
@@ -1000,7 +999,7 @@ fn gcd_lcm(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn logarithm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn logarithm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let x = o.positive(0)?;
     let base = o.opt_num(1)?.unwrap_or(10.0);
     if base <= 0.0 || base == 1.0 {
@@ -1015,7 +1014,7 @@ fn logarithm(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn exponent(_: &str, o: &mut Opts) -> Result<String, String> {
+fn exponent(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = o.num(0)?;
     let e = o.num(1)?;
     let v = b.powf(e);
@@ -1030,7 +1029,7 @@ fn exponent(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn magic_square(_: &str, o: &mut Opts) -> Result<String, String> {
+fn magic_square(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(3);
     let mut m = vec![vec![0usize; n]; n];
     if n % 2 == 1 {
@@ -1088,10 +1087,10 @@ fn magic_square(_: &str, o: &mut Opts) -> Result<String, String> {
     }
     let w = (n * n).to_string().len();
     let rows: Vec<String> = m.iter().map(|r| r.iter().map(|v| format!("{v:>w$}")).collect::<Vec<_>>().join(" ")).collect();
-    Ok(format!("{}\n\nEvery row, column and diagonal adds up to {}.", rows.join("\n"), n * (n * n + 1) / 2))
+    Ok(Output::default().code(rows.join("\n")).note(format!("Every row, column and diagonal adds up to {}.", n * (n * n + 1) / 2)))
 }
 
-fn pascal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pascal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let mut rows: Vec<Vec<u128>> = vec![vec![1]];
     for i in 1..n {
@@ -1105,7 +1104,7 @@ fn pascal(_: &str, o: &mut Opts) -> Result<String, String> {
     }
     let lines: Vec<String> = rows.iter().map(|r| r.iter().map(u128::to_string).collect::<Vec<_>>().join(" ")).collect();
     let width = lines.last().map_or(0, |l| l.len());
-    Ok(lines.iter().map(|l| format!("{:^width$}", l).trim_end().to_owned()).collect::<Vec<_>>().join("\n"))
+    Ok(lines.iter().map(|l| format!("{:^width$}", l).trim_end().to_owned()).collect::<Vec<_>>().join("\n").into())
 }
 
 fn mul_mod(a: u64, b: u64, m: u64) -> u64 {
@@ -1199,7 +1198,7 @@ fn whole(o: &Opts, i: usize) -> Result<u64, String> {
     s.parse::<u64>().map_err(|_| format!("“{}” is not a whole number from 0 to 18,446,744,073,709,551,615.", o.field(i)))
 }
 
-fn prime_check(_: &str, o: &mut Opts) -> Result<String, String> {
+fn prime_check(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = whole(o, 0)?;
     let prime = is_prime(n);
     let next = (n.saturating_add(1)..).find(|k| is_prime(*k)).unwrap_or(0);
@@ -1207,15 +1206,17 @@ fn prime_check(_: &str, o: &mut Opts) -> Result<String, String> {
     let mut f = Vec::new();
     factorize(n.max(1), &mut f);
     f.sort();
-    o.info = Some(if prime { "Prime".into() } else { "Not prime".into() });
-    Ok(table(&[
-        ("Prime", if prime { format!("✓ {n} is prime") } else if n < 2 { format!("✗ {n} is not prime") } else { format!("✗ {n} = {}", f.iter().map(u64::to_string).collect::<Vec<_>>().join(" × ")) }),
+    Ok(verdict(
+        prime,
+        if prime { format!("{n} is prime.") } else if n < 2 { format!("{n} is not prime.") } else { format!("{n} is not prime: {n} = {}.", f.iter().map(u64::to_string).collect::<Vec<_>>().join(" × ")) },
+    )
+    .facts(&[
         ("Next prime", next.to_string()),
         ("Previous prime", prev.map_or("none".into(), |p| p.to_string())),
     ]))
 }
 
-fn prime_factors(_: &str, o: &mut Opts) -> Result<String, String> {
+fn prime_factors(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = whole(o, 0)?;
     if n < 2 {
         return Err("Numbers below 2 have no prime factors.".into());
@@ -1255,7 +1256,7 @@ fn prime_factors(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn sci_notation(_: &str, o: &mut Opts) -> Result<String, String> {
+fn sci_notation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     if v == 0.0 {
         return Ok("0".into());
@@ -1276,7 +1277,7 @@ fn sci_notation(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn combinations(_: &str, o: &mut Opts) -> Result<String, String> {
+fn combinations(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.int(0)?;
     let k = o.int(1)?;
     if n < 0 || k < 0 || k > n || n > 1000 {
@@ -1327,7 +1328,7 @@ fn combinations(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn truth_table(_: &str, o: &mut Opts) -> Result<String, String> {
+fn truth_table(_: &str, o: &mut Opts) -> Result<Output, String> {
     let src = o.field(0);
     let norm = src
         .replace("<->", " ≡ ")
@@ -1431,13 +1432,11 @@ fn truth_table(_: &str, o: &mut Opts) -> Result<String, String> {
         let cells: Vec<String> = vars.iter().zip(&vals).map(|(name, (_, b))| format!("{:^w$}", if *b { "T" } else { "F" }, w = name.chars().count())).collect();
         out.push(format!("{} │ {}", cells.join(" "), if r { "T" } else { "F" }));
     }
-    out.push(String::new());
-    out.push(match trues {
+    Ok(Output::default().code(out.join("\n")).note(match trues {
         0 => "A contradiction: never true.".into(),
         t if t == n => "A tautology: always true.".into(),
         t => format!("True in {t} of {n} rows."),
-    });
-    Ok(out.join("\n"))
+    }))
 }
 
 // Numbers
@@ -1457,7 +1456,7 @@ fn to_base(mut n: u128, base: u32) -> String {
     String::from_utf8(s).unwrap()
 }
 
-fn base_convert(_: &str, o: &mut Opts) -> Result<String, String> {
+fn base_convert(_: &str, o: &mut Opts) -> Result<Output, String> {
     let raw = o.field(0).replace(['_', ' '], "");
     let (neg, raw) = match raw.strip_prefix('-') {
         Some(r) => (true, r.to_owned()),
@@ -1543,7 +1542,7 @@ fn ordinal_words(w: &str) -> String {
     format!("{head}{last}")
 }
 
-fn number_words(_: &str, o: &mut Opts) -> Result<String, String> {
+fn number_words(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     if v.abs() >= 1e19 {
         return Err("Up to quintillions.".into());
@@ -1568,7 +1567,7 @@ fn capitalize(s: &str) -> String {
     c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
-fn bitwise(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bitwise(_: &str, o: &mut Opts) -> Result<Output, String> {
     let parse = |s: &str| -> Result<i64, String> {
         let t = s.trim().replace('_', "");
         let r = if let Some(h) = t.strip_prefix("0x") {
@@ -1604,7 +1603,7 @@ fn bitwise(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn twos_complement(_: &str, o: &mut Opts) -> Result<String, String> {
+fn twos_complement(_: &str, o: &mut Opts) -> Result<Output, String> {
     let bits: u32 = o.mode.parse().unwrap_or(8);
     let s = o.field(0).replace([' ', '_'], "");
     let max = 1i128 << bits;
@@ -1629,7 +1628,7 @@ fn twos_complement(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn ieee754(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ieee754(_: &str, o: &mut Opts) -> Result<Output, String> {
     let s = o.field(0);
     let double = o.mode == "64";
     let v: f64 = if let Some(h) = s.strip_prefix("0x") {
@@ -1693,7 +1692,7 @@ fn mode(v: &[f64]) -> String {
     counts.iter().filter(|c| c.1 == top).map(|c| fmt(c.0, 6)).collect::<Vec<_>>().join(", ") + &format!(" ({top}×)")
 }
 
-fn stats(text: &str, _: &mut Opts) -> Result<String, String> {
+fn stats(text: &str, _: &mut Opts) -> Result<Output, String> {
     let v = numbers(text)?;
     let n = v.len() as f64;
     let s = sorted(&v);
@@ -1789,7 +1788,7 @@ fn normal_quantile(p: f64) -> f64 {
     (lo + hi) / 2.0
 }
 
-fn z_score(_: &str, o: &mut Opts) -> Result<String, String> {
+fn z_score(_: &str, o: &mut Opts) -> Result<Output, String> {
     let x = o.num(0)?;
     let mean = o.num(1)?;
     let sd = o.positive(2)?;
@@ -1803,7 +1802,7 @@ fn z_score(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn normal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn normal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mean = o.num(0)?;
     let sd = o.positive(1)?;
     let a = o.opt_num(2)?;
@@ -1852,7 +1851,7 @@ fn pearson(x: &[f64], y: &[f64]) -> f64 {
     cov / (sx * sy)
 }
 
-fn correlation(text: &str, _: &mut Opts) -> Result<String, String> {
+fn correlation(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut x = Vec::new();
     let mut y = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -1886,7 +1885,7 @@ fn correlation(text: &str, _: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn chi_square(text: &str, o: &mut Opts) -> Result<String, String> {
+fn chi_square(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows: Vec<Vec<f64>> = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| numbers(&l.replace(',', " "))).collect::<Result<_, _>>()?;
     if rows.is_empty() || rows.iter().any(|r| r.len() != rows[0].len()) {
         return Err("Write rows of the same length.".into());
@@ -1927,7 +1926,7 @@ fn chi_square(text: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn frequency(text: &str, o: &mut Opts) -> Result<String, String> {
+fn frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v = numbers(text)?;
     let s = sorted(&v);
     let (lo, hi) = (s[0], s[s.len() - 1]);
@@ -1940,22 +1939,21 @@ fn frequency(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     let max = *counts.iter().max().unwrap_or(&1);
     let mut cum = 0;
-    let mut out = vec![format!("{:<22} {:>6} {:>8} {:>8}", "Range", "Count", "Share", "Cumul.")];
+    let mut out = Vec::new();
     for (i, c) in counts.iter().enumerate() {
         cum += c;
-        out.push(format!(
-            "{:<22} {:>6} {:>7.1}% {:>7.1}%  {}",
+        out.push(vec![
             format!("{} – {}", fmt(lo + width * i as f64, 3), fmt(lo + width * (i + 1) as f64, 3)),
-            c,
-            *c as f64 * 100.0 / v.len() as f64,
-            cum as f64 * 100.0 / v.len() as f64,
-            "█".repeat((c * 20).div_ceil(max.max(1)))
-        ));
+            c.to_string(),
+            format!("{:.1}%", *c as f64 * 100.0 / v.len() as f64),
+            format!("{:.1}%", cum as f64 * 100.0 / v.len() as f64),
+            "█".repeat((c * 20).div_ceil(max.max(1))),
+        ]);
     }
-    Ok(out.join("\n"))
+    Ok(grid(&["Range", "Count", "Share", "Cumulative", ""], out))
 }
 
-fn probability(_: &str, o: &mut Opts) -> Result<String, String> {
+fn probability(_: &str, o: &mut Opts) -> Result<Output, String> {
     let read = |i: usize| -> Result<f64, String> {
         let raw = o.field(i);
         let v = super::parse_number(raw).ok_or_else(|| format!("“{raw}” is not a probability."))?;
@@ -2116,9 +2114,9 @@ mod tests {
     fn unit_prices() {
         let mut rng = Rng(1);
         let mut o = Opts::new("weight", &mut rng).with(&["$"], &["weight"], &[]);
-        let out = unit_price("Small, 2.00, 250 g\nBig, 5.00, 1 kg\nMid, 3, 500g", &mut o).unwrap();
-        let first = out.lines().next().unwrap();
-        assert!(first.starts_with("1. Big") && first.contains("★ Best value"), "{out}");
+        let out = unit_price("Small, 2.00, 250 g\nBig, 5.00, 1 kg\nMid, 3, 500g", &mut o).unwrap().plain();
+        let first = out.lines().nth(1).unwrap();
+        assert!(first.starts_with("Big") && first.contains("Best value"), "{out}");
         assert!(out.contains("+60%"), "{out}");
     }
 

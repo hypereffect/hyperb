@@ -1,5 +1,6 @@
 //! Encoders, hashes and Roman numerals.
 
+use super::Output;
 use super::Opts;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -104,18 +105,18 @@ fn base91_decode(text: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn utf8(bytes: Vec<u8>) -> Result<String, String> {
-    String::from_utf8(bytes).map_err(|_| "The decoded bytes are not UTF-8 text.".into())
+fn utf8(bytes: Vec<u8>) -> Result<Output, String> {
+    String::from_utf8(bytes).map(Output::from).map_err(|_| "The decoded bytes are not UTF-8 text.".into())
 }
 
-pub fn base32(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn base32(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => utf8(base32_decode(text)?),
-        _ => Ok(base32_encode(text.as_bytes())),
+        _ => Ok(super::snippet(base32_encode(text.as_bytes()))),
     }
 }
 
-pub fn base64(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn base64(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => {
             let clean: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -124,14 +125,14 @@ pub fn base64(text: &str, o: &mut Opts) -> Result<String, String> {
             let padded = format!("{clean}{}", "=".repeat((4 - clean.len() % 4) % 4));
             utf8(STANDARD.decode(padded).map_err(|e| format!("Not Base64: {e}."))?)
         }
-        _ => Ok(STANDARD.encode(text)),
+        _ => Ok(super::snippet(STANDARD.encode(text))),
     }
 }
 
-pub fn base91(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn base91(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => utf8(base91_decode(text)?),
-        _ => Ok(base91_encode(text.as_bytes())),
+        _ => Ok(super::snippet(base91_encode(text.as_bytes()))),
     }
 }
 
@@ -159,27 +160,27 @@ pub fn digests(b: &[u8]) -> Vec<(&'static str, String)> {
     ]
 }
 
-pub fn hash(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn hash(text: &str, o: &mut Opts) -> Result<Output, String> {
     let all = digests(text.as_bytes());
     let upper = |s: &String| if o.flag { s.to_uppercase() } else { s.clone() };
     Ok(match all.iter().find(|(name, _)| *name == o.mode) {
-        Some((_, digest)) => upper(digest),
+        Some((name, digest)) => super::table(&[(name, upper(digest))]),
         None => super::table(&all.iter().map(|(n, d)| (*n, upper(d))).collect::<Vec<_>>()),
     })
 }
 
-pub fn rot13(text: &str, _: &mut Opts) -> Result<String, String> {
-    Ok(text
+pub fn rot13(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(text
         .chars()
         .map(|c| match c {
             'a'..='z' => ((c as u8 - b'a' + 13) % 26 + b'a') as char,
             'A'..='Z' => ((c as u8 - b'A' + 13) % 26 + b'A') as char,
             _ => c,
         })
-        .collect())
+        .collect()))
 }
 
-pub fn url(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn url(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => {
             let bytes = text.as_bytes();
@@ -207,7 +208,7 @@ pub fn url(text: &str, o: &mut Opts) -> Result<String, String> {
             }
             utf8(out)
         }
-        _ => Ok(text
+        _ => Ok(super::snippet(text
             .bytes()
             .map(|b| match b {
                 b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -215,7 +216,7 @@ pub fn url(text: &str, o: &mut Opts) -> Result<String, String> {
                 }
                 _ => format!("%{b:02X}"),
             })
-            .collect()),
+            .collect())),
     }
 }
 
@@ -261,24 +262,24 @@ fn from_roman(s: &str) -> Option<u32> {
 }
 
 /// Applies `f` to each non-empty line, keeping the empty ones.
-fn per_line(text: &str, f: impl Fn(&str) -> Result<String, String>) -> Result<String, String> {
+fn per_line(text: &str, f: impl Fn(&str) -> Result<String, String>) -> Result<Output, String> {
     text.lines()
         .map(|l| {
             let l = l.trim();
             if l.is_empty() { Ok(String::new()) } else { f(l) }
         })
         .collect::<Result<Vec<_>, _>>()
-        .map(|v| v.join("\n"))
+        .map(|v| v.join("\n").into())
 }
 
-pub fn decimal_to_roman(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn decimal_to_roman(text: &str, _: &mut Opts) -> Result<Output, String> {
     per_line(text, |l| match l.parse::<u32>() {
         Ok(n @ 1..=3999) => Ok(to_roman(n)),
         _ => Err(format!("“{l}” is not a number from 1 to 3999.")),
     })
 }
 
-pub fn roman_to_decimal(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn roman_to_decimal(text: &str, _: &mut Opts) -> Result<Output, String> {
     per_line(text, |l| {
         from_roman(l)
             .map(|n| n.to_string())
@@ -340,10 +341,10 @@ fn ascii85_decode(text: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn ascii85(text: &str, o: &mut Opts) -> Result<String, String> {
+fn ascii85(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => utf8(ascii85_decode(text)?),
-        _ => Ok(ascii85_encode(text.as_bytes())),
+        _ => Ok(super::snippet(ascii85_encode(text.as_bytes()))),
     }
 }
 
@@ -359,17 +360,17 @@ pub fn unhex(s: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn hex_tool(text: &str, o: &mut Opts) -> Result<String, String> {
+fn hex_tool(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => utf8(unhex(text)?),
         _ => {
             let h: Vec<String> = text.bytes().map(|b| if o.check(1) { format!("{b:02X}") } else { format!("{b:02x}") }).collect();
-            Ok(h.join(if o.flag { " " } else { "" }))
+            Ok(super::snippet(h.join(if o.flag { " " } else { "" })))
         }
     }
 }
 
-fn binary(text: &str, o: &mut Opts) -> Result<String, String> {
+fn binary(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "decode" => {
             let bits: String = text.chars().filter(|c| *c == '0' || *c == '1').collect();
@@ -378,11 +379,11 @@ fn binary(text: &str, o: &mut Opts) -> Result<String, String> {
             }
             utf8((0..bits.len()).step_by(8).map(|i| u8::from_str_radix(&bits[i..i + 8], 2).unwrap()).collect())
         }
-        _ => Ok(text.bytes().map(|b| format!("{b:08b}")).collect::<Vec<_>>().join(" ")),
+        _ => Ok(super::snippet(text.bytes().map(|b| format!("{b:08b}")).collect::<Vec<_>>().join(" "))),
     }
 }
 
-fn string_escape(text: &str, o: &mut Opts) -> Result<String, String> {
+fn string_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
         "unescape" => {
             let t = text.trim();
@@ -390,11 +391,11 @@ fn string_escape(text: &str, o: &mut Opts) -> Result<String, String> {
             // JavaScript escapes that JSON lacks.
             let quoted = quoted.replace("\\'", "'").replace("\\0", "\\u0000");
             let v: String = hypereffect::serde_json::from_str(&quoted).map_err(|e| format!("Not an escaped string: {e}."))?;
-            Ok(v)
+            Ok(super::snippet(v))
         }
         _ => {
             let s = hypereffect::serde_json::to_string(text).unwrap();
-            Ok(if o.flag { s } else { s[1..s.len() - 1].to_owned() })
+            Ok(super::snippet(if o.flag { s } else { s[1..s.len() - 1].to_owned() }))
         }
     }
 }
@@ -410,9 +411,9 @@ const MORSE: &[(char, &str)] = &[
     ('$', "...-..-"), ('@', ".--.-."),
 ];
 
-fn morse(text: &str, o: &mut Opts) -> Result<String, String> {
+fn morse(text: &str, o: &mut Opts) -> Result<Output, String> {
     match o.mode {
-        "decode" => Ok(text
+        "decode" => Ok(super::snippet(text
             .trim()
             .split(['/', '|'])
             .map(|w| {
@@ -424,10 +425,10 @@ fn morse(text: &str, o: &mut Opts) -> Result<String, String> {
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
-            .join(" ")),
+            .join(" "))),
         _ => {
-            let plain: String = super::text::remove_accents(text, o)?;
-            Ok(plain
+            let plain: String = super::text::unaccented(text);
+            Ok(super::snippet(plain
                 .split_whitespace()
                 .map(|w| {
                     w.chars()
@@ -436,7 +437,7 @@ fn morse(text: &str, o: &mut Opts) -> Result<String, String> {
                         .join(" ")
                 })
                 .collect::<Vec<_>>()
-                .join(" / "))
+                .join(" / ")))
         }
     }
 }
@@ -541,9 +542,9 @@ fn puny_decode(input: &str) -> Option<String> {
     out.into_iter().map(char::from_u32).collect()
 }
 
-fn punycode(text: &str, o: &mut Opts) -> Result<String, String> {
+fn punycode(text: &str, o: &mut Opts) -> Result<Output, String> {
     let decode = o.mode == "decode";
-    Ok(text
+    Ok(super::snippet(text
         .lines()
         .map(|line| {
             line.trim()
@@ -564,13 +565,13 @@ fn punycode(text: &str, o: &mut Opts) -> Result<String, String> {
                 .join(".")
         })
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")))
 }
 
-fn unicode(text: &str, o: &mut Opts) -> Result<String, String> {
+fn unicode(text: &str, o: &mut Opts) -> Result<Output, String> {
     let non_ascii = o.flag;
     let keep = |c: char| non_ascii && c.is_ascii();
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "decode" => {
             let re = regex_lite::Regex::new(r"\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|U\+([0-9a-fA-F]{4,6})|&#x([0-9a-fA-F]+);|&#([0-9]+);").unwrap();
             let decoded = re.replace_all(text, |c: &regex_lite::Captures| {
@@ -595,10 +596,10 @@ fn unicode(text: &str, o: &mut Opts) -> Result<String, String> {
         "html" => text.chars().map(|c| if keep(c) { c.to_string() } else { format!("&#x{:X};", c as u32) }).collect(),
         "css" => text.chars().map(|c| if keep(c) { c.to_string() } else { format!("\\{:X} ", c as u32) }).collect(),
         _ => text.chars().map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>().join(" "),
-    })
+    }))
 }
 
-fn cipher(text: &str, o: &mut Opts) -> Result<String, String> {
+fn cipher(text: &str, o: &mut Opts) -> Result<Output, String> {
     let decode = o.choice(1) == "decode";
     let shift_char = |c: char, k: i32| -> char {
         let (base, n) = match c {
@@ -609,7 +610,7 @@ fn cipher(text: &str, o: &mut Opts) -> Result<String, String> {
         let k = if decode { -k } else { k };
         (((c as u8 - base) as i32 + k).rem_euclid(n) as u8 + base) as char
     };
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "vigenere" => {
             let key: Vec<i32> = o.first.chars().filter(char::is_ascii_alphabetic).map(|c| (c.to_ascii_lowercase() as u8 - b'a') as i32).collect();
             if key.is_empty() {
@@ -657,7 +658,7 @@ fn cipher(text: &str, o: &mut Opts) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(" "),
         _ => text.chars().map(|c| shift_char(c, o.number as i32)).collect(),
-    })
+    }))
 }
 
 /// HMAC over a hash with `block`-byte blocks.
@@ -669,7 +670,7 @@ fn hmac(key: &[u8], msg: &[u8], block: usize, h: fn(&[u8]) -> Vec<u8>) -> Vec<u8
     h(&outer)
 }
 
-fn hmac_tool(text: &str, o: &mut Opts) -> Result<String, String> {
+fn hmac_tool(text: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.first.as_bytes();
     let (block, h): (usize, fn(&[u8]) -> Vec<u8>) = match o.mode {
         "SHA-1" => (64, |b| sha1::Sha1::digest(b).to_vec()),
@@ -679,13 +680,13 @@ fn hmac_tool(text: &str, o: &mut Opts) -> Result<String, String> {
         _ => (64, |b| sha2::Sha256::digest(b).to_vec()),
     };
     let mac = hmac(key, text.as_bytes(), block, h);
-    Ok(match o.choice(1) {
+    Ok(super::table(&[(&format!("HMAC-{}", if o.mode.is_empty() { "SHA-256" } else { o.mode }), match o.choice(1) {
         "base64" => STANDARD.encode(&mac),
         _ => hex(&mac),
-    })
+    })]))
 }
 
-fn hash_compare(_: &str, o: &mut Opts) -> Result<String, String> {
+fn hash_compare(_: &str, o: &mut Opts) -> Result<Output, String> {
     let clean = |s: &str| s.trim().trim_start_matches("0x").to_lowercase();
     let (a, b) = (clean(o.field(0)), clean(o.field(1)));
     if a.is_empty() || b.is_empty() {
@@ -702,13 +703,9 @@ fn hash_compare(_: &str, o: &mut Opts) -> Result<String, String> {
         _ => "not a hex digest of a known length",
     };
     let same = a == b;
-    o.info = Some(if same { "Match".into() } else { "Different".into() });
     let first_diff = a.chars().zip(b.chars()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
-    Ok(super::table(&[
-        ("Result", if same { "✓ The hashes are the same.".into() } else { format!("✗ They differ, from character {}.", first_diff + 1) }),
-        ("First looks like", kind(&a).into()),
-        ("Second looks like", kind(&b).into()),
-    ]))
+    Ok(verdict(same, if same { "The hashes are the same.".into() } else { format!("They differ, from character {}.", first_diff + 1) })
+        .facts(&[("First looks like", kind(&a).into()), ("Second looks like", kind(&b).into())]))
 }
 
 // Blockchain
@@ -742,13 +739,13 @@ fn from_base(n: u128, decimals: u32) -> String {
 
 const ETH_UNITS: &[(&str, u32)] = &[("wei", 0), ("kwei", 3), ("mwei", 6), ("gwei", 9), ("szabo", 12), ("finney", 15), ("ether", 18)];
 
-fn wei(_: &str, o: &mut Opts) -> Result<String, String> {
+fn wei(_: &str, o: &mut Opts) -> Result<Output, String> {
     let from = ETH_UNITS.iter().find(|u| u.0 == o.mode).unwrap_or(&ETH_UNITS[6]).1;
     let base = to_base(o.field(0), from)?;
     Ok(super::table(&ETH_UNITS.iter().map(|(n, d)| (*n, from_base(base, *d))).collect::<Vec<_>>()))
 }
 
-fn erc20(_: &str, o: &mut Opts) -> Result<String, String> {
+fn erc20(_: &str, o: &mut Opts) -> Result<Output, String> {
     let decimals = o.int(1)?;
     if !(0..=36).contains(&decimals) {
         return Err("Decimals go from 0 to 36.".into());
@@ -756,13 +753,13 @@ fn erc20(_: &str, o: &mut Opts) -> Result<String, String> {
     let d = decimals as u32;
     Ok(if o.mode == "base" {
         let base: u128 = o.field(0).replace([',', '_'], "").parse().map_err(|_| "Base units are a whole number.".to_string())?;
-        format!("{} tokens", from_base(base, d))
+        super::table(&[("Tokens", from_base(base, d))])
     } else {
-        format!("{} base units", to_base(o.field(0), d)?)
+        super::table(&[("Base units", to_base(o.field(0), d)?.to_string())])
     })
 }
 
-fn selector(_: &str, o: &mut Opts) -> Result<String, String> {
+fn selector(_: &str, o: &mut Opts) -> Result<Output, String> {
     let sig: String = o.field(0).chars().filter(|c| !c.is_whitespace()).collect();
     if !sig.contains('(') || !sig.ends_with(')') {
         return Err("Write a signature such as transfer(address,uint256).".into());
@@ -775,7 +772,7 @@ fn selector(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn namehash(_: &str, o: &mut Opts) -> Result<String, String> {
+fn namehash(_: &str, o: &mut Opts) -> Result<Output, String> {
     let name = o.field(0).to_lowercase();
     let mut node = [0u8; 32];
     if !name.is_empty() {
@@ -804,27 +801,25 @@ fn checksum_address(addr: &[u8]) -> String {
     format!("0x{mixed}")
 }
 
-fn address(_: &str, o: &mut Opts) -> Result<String, String> {
+fn address(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = o.field(0);
     let body = a.strip_prefix("0x").ok_or("An address starts with 0x.")?;
     if body.len() != 40 || !body.chars().all(|c| c.is_ascii_hexdigit()) {
-        o.info = Some("Invalid".into());
-        return Ok(format!("✗ An address is 0x and 40 hex digits; this has {}.", body.len()));
+        return Ok(verdict(false, format!("An address is 0x and 40 hex digits; this has {}.", body.len())));
     }
     let good = checksum_address(&unhex(body)?);
     let mixed = body.chars().any(|c| c.is_ascii_lowercase()) && body.chars().any(|c| c.is_ascii_uppercase());
-    let verdict = if !mixed {
-        "✓ Valid, without a checksum (all one case)."
+    let (ok, why) = if !mixed {
+        (true, "Valid, without a checksum (all one case).")
     } else if good == a {
-        "✓ Valid, with a correct EIP-55 checksum."
+        (true, "Valid, with a correct EIP-55 checksum.")
     } else {
-        "✗ The EIP-55 checksum is wrong: a letter's case is off, or the address has a typo."
+        (false, "The EIP-55 checksum is wrong: a letter's case is off, or the address has a typo.")
     };
-    o.info = Some(if verdict.starts_with('✓') { "Valid".into() } else { "Invalid".into() });
-    Ok(super::table(&[("Result", verdict.into()), ("Checksummed", good)]))
+    Ok(verdict(ok, why).facts(&[("Checksummed", good)]))
 }
 
-fn create2(_: &str, o: &mut Opts) -> Result<String, String> {
+fn create2(_: &str, o: &mut Opts) -> Result<Output, String> {
     let deployer = unhex(o.field(0))?;
     let salt = unhex(o.field(1))?;
     let code = o.field(2);
@@ -851,7 +846,7 @@ fn create2(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn calldata(_: &str, o: &mut Opts) -> Result<String, String> {
+fn calldata(_: &str, o: &mut Opts) -> Result<Output, String> {
     let data = unhex(o.field(0))?;
     let zeros = data.iter().filter(|b| **b == 0).count();
     let gas = zeros * 4 + (data.len() - zeros) * 16;
@@ -867,7 +862,7 @@ fn calldata(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(super::table(&rows))
 }
 
-fn gas(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gas(_: &str, o: &mut Opts) -> Result<Output, String> {
     let units = o.positive(0)?;
     let base = o.num(1)?;
     let tip = o.opt_num(2)?.unwrap_or(0.0);
@@ -879,7 +874,7 @@ fn gas(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(super::table(&rows))
 }
 
-fn vanity(_: &str, o: &mut Opts) -> Result<String, String> {
+fn vanity(_: &str, o: &mut Opts) -> Result<Output, String> {
     let pattern = o.field(0).trim_start_matches("0x");
     if !pattern.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("A vanity pattern is hex digits.".into());
@@ -898,7 +893,7 @@ fn vanity(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn merkle(text: &str, o: &mut Opts) -> Result<String, String> {
+fn merkle(text: &str, o: &mut Opts) -> Result<Output, String> {
     let h: fn(&[u8]) -> Vec<u8> = if o.mode == "sha256" { |b| sha2::Sha256::digest(b).to_vec() } else { |b| keccak(b).to_vec() };
     let leaves: Vec<Vec<u8>> = text
         .lines()
@@ -927,15 +922,11 @@ fn merkle(text: &str, o: &mut Opts) -> Result<String, String> {
         levels.push(next);
     }
     let root = hex(&levels.last().unwrap()[0]);
-    let mut out = vec![format!("Root: 0x{root}"), String::new()];
-    for (i, level) in levels.iter().enumerate().rev() {
-        out.push(format!("Level {i}:"));
-        out.extend(level.iter().map(|n| format!("  0x{}", hex(n))));
-    }
-    Ok(out.join("\n"))
+    let rows = levels.iter().enumerate().rev().flat_map(|(i, level)| level.iter().map(move |n| vec![format!("Level {i}"), format!("0x{}", hex(n))]));
+    Ok(super::table(&[("Root", format!("0x{root}"))]).table(&["", "Hash"], rows))
 }
 
-fn block_estimate(_: &str, o: &mut Opts) -> Result<String, String> {
+fn block_estimate(_: &str, o: &mut Opts) -> Result<Output, String> {
     let current = o.num(0)?;
     let secs = o.positive(2)?;
     let now = o.now()? / 1000.0;
@@ -956,7 +947,7 @@ fn block_estimate(_: &str, o: &mut Opts) -> Result<String, String> {
 
 // The menus
 
-use super::{Tool, tool};
+use super::{Tool, tool, verdict};
 
 const CODEC: super::Menu = &[("encode", "Encode"), ("decode", "Decode")];
 

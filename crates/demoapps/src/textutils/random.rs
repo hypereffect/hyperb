@@ -1,11 +1,21 @@
 //! Random picks and generators, and a few things for fun. The randomness
 //! comes from the clock: fine for games and samples, not for secrets.
 
+use super::Output;
 use super::names;
 use super::{Opts, Rng, Tool, fmt, table, tool};
 
 fn list(text: &str) -> Vec<&str> {
     text.lines().flat_map(|l| if l.contains(',') && !l.contains(' ') { l.split(',').collect::<Vec<_>>() } else { vec![l] }).map(str::trim).filter(|l| !l.is_empty()).collect()
+}
+
+/// Items drawn at random: one as a value, more as a list.
+fn drawn(label: &str, items: Vec<String>) -> Output {
+    if items.len() == 1 {
+        table(&[(label, items[0].clone())])
+    } else {
+        super::list(items)
+    }
 }
 
 /// Picks `n` items, without repeats unless `repeat`.
@@ -22,7 +32,7 @@ fn pick<'a>(items: &[&'a str], n: usize, repeat: bool, rng: &mut Rng) -> Vec<&'a
 /// A name generator over a list, with the filters of text-utils.com:
 /// how many, starting and ending letters, letters it must contain, and
 /// the number of words.
-fn generate(all: &[&str], o: &mut Opts) -> Result<String, String> {
+fn generate(all: &[&str], o: &mut Opts) -> Result<Output, String> {
     let (starts, ends, has) = (o.field(0).to_lowercase(), o.field(1).to_lowercase(), o.field(2).to_lowercase());
     let words = o.opt_num(3)?.map(|w| w as usize);
     let pool: Vec<&str> = all
@@ -41,14 +51,14 @@ fn generate(all: &[&str], o: &mut Opts) -> Result<String, String> {
     if o.check(1) {
         out.sort();
     }
-    o.info = Some(format!("{} of {} that match", out.len(), pool.len()));
-    Ok(out.join("\n"))
+    let note = format!("{} of {} that match", out.len(), pool.len());
+    Ok(drawn("Picked", out.iter().map(|s| s.to_string()).collect()).note(note))
 }
 
 macro_rules! generators {
     ($($fn:ident, $list:expr, $id:literal, $name:literal, $about:literal;)*) => {
         $(
-            fn $fn(_: &str, o: &mut Opts) -> Result<String, String> {
+            fn $fn(_: &str, o: &mut Opts) -> Result<Output, String> {
                 generate($list, o)
             }
         )*
@@ -73,7 +83,7 @@ generators! {
     presidents, names::PRESIDENTS, "random-president", "Random US president", "Random presidents of the United States.";
 }
 
-fn random_number(_: &str, o: &mut Opts) -> Result<String, String> {
+fn random_number(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (lo, hi) = (o.num(0)?, o.num(1)?);
     if hi < lo {
         return Err("The maximum is below the minimum.".into());
@@ -97,13 +107,13 @@ fn random_number(_: &str, o: &mut Opts) -> Result<String, String> {
         if o.check(1) {
             out.sort();
         }
-        return Ok(out.iter().map(i64::to_string).collect::<Vec<_>>().join(", "));
+        return Ok(drawn("Random number", out.iter().map(i64::to_string).collect()));
     }
     let out: Vec<String> = (0..n).map(|_| format!("{:.*}", decimals, lo + o.rng.unit() * (hi - lo))).collect();
-    Ok(out.join(", "))
+    Ok(drawn("Random number", out))
 }
 
-fn dice(_: &str, o: &mut Opts) -> Result<String, String> {
+fn dice(_: &str, o: &mut Opts) -> Result<Output, String> {
     let re = regex_lite::Regex::new(r"(?i)^\s*(\d*)\s*d\s*(\d+|%)\s*(?:([+-])\s*(\d+))?\s*$").unwrap();
     let mut out = Vec::new();
     for spec in o.field(0).split(',') {
@@ -116,27 +126,29 @@ fn dice(_: &str, o: &mut Opts) -> Result<String, String> {
         let bonus: i64 = c.get(4).map_or(0, |m| m.as_str().parse().unwrap_or(0)) * if c.get(3).is_some_and(|s| s.as_str() == "-") { -1 } else { 1 };
         let rolls: Vec<usize> = (0..count).map(|_| o.rng.below(sides) + 1).collect();
         let total = rolls.iter().sum::<usize>() as i64 + bonus;
-        out.push(format!("{}: {} = {total}", spec.trim(), rolls.iter().map(usize::to_string).collect::<Vec<_>>().join(" + ") + &if bonus != 0 { format!(" {} {}", if bonus < 0 { "−" } else { "+" }, bonus.abs()) } else { String::new() }));
+        let rolled = rolls.iter().map(usize::to_string).collect::<Vec<_>>().join(" + ");
+        let bonus = if bonus != 0 { format!(" {} {}", if bonus < 0 { "−" } else { "+" }, bonus.abs()) } else { String::new() };
+        out.push(vec![spec.trim().to_owned(), total.to_string(), format!("{rolled}{bonus}")]);
     }
-    Ok(out.join("\n"))
+    Ok(super::grid(&["Dice", "Total", "Rolls"], out))
 }
 
-fn choice(text: &str, o: &mut Opts) -> Result<String, String> {
+fn choice(text: &str, o: &mut Opts) -> Result<Output, String> {
     let items = list(text);
     if items.is_empty() {
         return Err("Write the choices, one per line.".into());
     }
     let n = o.number.max(1).min(if o.flag { usize::MAX } else { items.len() });
-    Ok(pick(&items, n, o.flag, o.rng).join("\n"))
+    Ok(drawn("Picked", pick(&items, n, o.flag, o.rng).iter().map(|s| s.to_string()).collect()))
 }
 
-fn shuffle(text: &str, o: &mut Opts) -> Result<String, String> {
+fn shuffle(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut items = list(text);
     o.rng.shuffle(&mut items);
-    Ok(items.iter().enumerate().map(|(i, x)| format!("{}. {x}", i + 1)).collect::<Vec<_>>().join("\n"))
+    Ok(super::list(items))
 }
 
-fn teams_of(text: &str, o: &mut Opts) -> Result<String, String> {
+fn teams_of(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut people = list(text);
     let k = o.number.max(2);
     if people.len() < k {
@@ -147,10 +159,11 @@ fn teams_of(text: &str, o: &mut Opts) -> Result<String, String> {
     for (i, p) in people.iter().enumerate() {
         teams[i % k].push(p);
     }
-    Ok(teams.iter().enumerate().map(|(i, t)| format!("Team {}: {}", i + 1, t.join(", "))).collect::<Vec<_>>().join("\n"))
+    let names: Vec<String> = (1..=k).map(|i| format!("Team {i}")).collect();
+    Ok(table(&teams.iter().zip(&names).map(|(t, name)| (name.as_str(), t.join(", "))).collect::<Vec<_>>()))
 }
 
-fn secret_santa(text: &str, o: &mut Opts) -> Result<String, String> {
+fn secret_santa(text: &str, o: &mut Opts) -> Result<Output, String> {
     let people = list(text);
     if people.len() < 3 {
         return Err("Write at least three names.".into());
@@ -159,10 +172,10 @@ fn secret_santa(text: &str, o: &mut Opts) -> Result<String, String> {
     // who draws them.
     let mut order = people.clone();
     o.rng.shuffle(&mut order);
-    Ok((0..order.len()).map(|i| format!("{} → {}", order[i], order[(i + 1) % order.len()])).collect::<Vec<_>>().join("\n"))
+    Ok(super::grid(&["Giver", "Gives to"], (0..order.len()).map(|i| vec![order[i], order[(i + 1) % order.len()]])))
 }
 
-fn lottery(_: &str, o: &mut Opts) -> Result<String, String> {
+fn lottery(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.num(0)? as usize;
     let max = o.num(1)? as usize;
     if n == 0 || n > max {
@@ -172,16 +185,15 @@ fn lottery(_: &str, o: &mut Opts) -> Result<String, String> {
     o.rng.shuffle(&mut pool);
     let mut main = pool[..n].to_vec();
     main.sort();
-    let mut out = main.iter().map(usize::to_string).collect::<Vec<_>>().join("  ");
+    let mut out = vec![("Numbers", main.iter().map(usize::to_string).collect::<Vec<_>>().join("  "))];
     if let Some(b) = o.opt_num(2)?.filter(|b| *b >= 1.0) {
-        out.push_str(&format!("   bonus {}", o.rng.below(b as usize) + 1));
+        out.push(("Bonus", (o.rng.below(b as usize) + 1).to_string()));
     }
     let odds: f64 = (0..n).map(|i| (max - i) as f64 / (n - i) as f64).product();
-    o.info = Some(format!("Odds of all {n}: 1 in {}", fmt(odds.round(), 0)));
-    Ok(out)
+    Ok(table(&out).note(format!("Odds of all {n}: 1 in {}", fmt(odds.round(), 0))))
 }
 
-fn coin(_: &str, o: &mut Opts) -> Result<String, String> {
+fn coin(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let flips: Vec<bool> = (0..n).map(|_| o.rng.next() & 1 == 0).collect();
     let heads = flips.iter().filter(|f| **f).count();
@@ -189,7 +201,7 @@ fn coin(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Flips", shown), ("Heads", heads.to_string()), ("Tails", (n - heads).to_string())]))
 }
 
-fn bingo(_: &str, o: &mut Opts) -> Result<String, String> {
+fn bingo(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cards = o.number.max(1);
     let mut out = Vec::new();
     for k in 0..cards {
@@ -207,10 +219,10 @@ fn bingo(_: &str, o: &mut Opts) -> Result<String, String> {
         }
         out.push(String::new());
     }
-    Ok(out.join("\n").trim_end().to_owned())
+    Ok(out.join("\n").trim_end().into())
 }
 
-fn bracket(text: &str, o: &mut Opts) -> Result<String, String> {
+fn bracket(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut teams = list(text);
     if teams.len() < 2 {
         return Err("Write at least two teams.".into());
@@ -220,16 +232,16 @@ fn bracket(text: &str, o: &mut Opts) -> Result<String, String> {
     }
     let size = teams.len().next_power_of_two();
     // Seeded pairs: 1 v N, 2 v N-1…; missing seats are byes.
-    let mut out = vec![format!("Round 1 of {} ({} teams):", size.trailing_zeros(), teams.len())];
+    let mut out = Vec::new();
     for i in 0..size / 2 {
         let a = teams.get(i).copied().unwrap_or("bye");
         let b = teams.get(size - 1 - i).copied().unwrap_or("bye");
-        out.push(format!("  {a} vs {b}"));
+        out.push(format!("{a} vs {b}"));
     }
-    Ok(out.join("\n"))
+    Ok(Output::default().note(format!("Round 1 of {} ({} teams)", size.trailing_zeros(), teams.len())).list(out))
 }
 
-fn mock(_: &str, o: &mut Opts) -> Result<String, String> {
+fn mock(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let domains = ["example.com", "mail.test", "inbox.example", "post.example.org"];
     let streets = ["Oak", "Maple", "Pine", "Cedar", "Elm", "Willow", "Lake", "Hill", "River", "Park"];
@@ -246,7 +258,7 @@ fn mock(_: &str, o: &mut Opts) -> Result<String, String> {
         rows.push([(i + 1).to_string(), first.into(), last.into(), email, phone, born, address, city.into(), country.into()]);
     }
     const KEYS: [&str; 9] = ["id", "first_name", "last_name", "email", "phone", "birth_date", "address", "city", "country"];
-    Ok(match o.mode {
+    Ok(super::snippet(match o.mode {
         "csv" => std::iter::once(KEYS.join(","))
             .chain(rows.iter().map(|r| r.iter().map(|c| if c.contains(',') { format!("\"{c}\"") } else { c.clone() }).collect::<Vec<_>>().join(",")))
             .collect::<Vec<_>>()
@@ -269,12 +281,12 @@ fn mock(_: &str, o: &mut Opts) -> Result<String, String> {
                 .collect();
             super::code::json_text(&hypereffect::Value::Array(v), 2)
         }
-    })
+    }))
 }
 
-fn pet_name(_: &str, o: &mut Opts) -> Result<String, String> {
+fn pet_name(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
-    Ok(pick(names::PETS, n.min(names::PETS.len()), false, o.rng).join("\n"))
+    Ok(drawn("Name", pick(names::PETS, n.min(names::PETS.len()), false, o.rng).iter().map(|s| s.to_string()).collect()))
 }
 
 // Fun
@@ -285,8 +297,8 @@ const EIGHT_BALL: [&str; 20] = [
     "Concentrate and ask again.", "Don't count on it.", "My reply is no.", "My sources say no.", "Outlook not so good.", "Very doubtful.",
 ];
 
-fn eight_ball(_: &str, o: &mut Opts) -> Result<String, String> {
-    Ok(format!("🎱 {}", EIGHT_BALL[o.rng.below(EIGHT_BALL.len())]))
+fn eight_ball(_: &str, o: &mut Opts) -> Result<Output, String> {
+    Ok(table(&[("The Magic 8 Ball says", EIGHT_BALL[o.rng.below(EIGHT_BALL.len())].into())]))
 }
 
 const FORTUNES: [&str; 16] = [
@@ -298,9 +310,9 @@ const FORTUNES: [&str; 16] = [
     "Today is a good day to learn a new word.",
 ];
 
-fn fortune(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fortune(_: &str, o: &mut Opts) -> Result<Output, String> {
     let lucky: Vec<String> = pick(&["1", "4", "7", "8", "11", "13", "18", "21", "23", "27", "32", "36", "40", "42", "45"], 6, false, o.rng).iter().map(|s| s.to_string()).collect();
-    Ok(format!("🥠 {}\n\nLucky numbers: {}", FORTUNES[o.rng.below(FORTUNES.len())], lucky.join(" ")))
+    Ok(super::prose(format!("🥠 {}", FORTUNES[o.rng.below(FORTUNES.len())])).facts(&[("Lucky numbers", lucky.join(" "))]))
 }
 
 const MAJOR: [&str; 22] = [
@@ -309,7 +321,7 @@ const MAJOR: [&str; 22] = [
     "The Sun", "Judgement", "The World",
 ];
 
-fn tarot(_: &str, o: &mut Opts) -> Result<String, String> {
+fn tarot(_: &str, o: &mut Opts) -> Result<Output, String> {
     let ranks = ["Ace", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Page", "Knight", "Queen", "King"];
     let suits = ["Wands", "Cups", "Swords", "Pentacles"];
     let mut deck: Vec<String> = MAJOR.iter().map(|s| s.to_string()).collect();
@@ -325,7 +337,7 @@ fn tarot(_: &str, o: &mut Opts) -> Result<String, String> {
         _ => &["Card"],
     };
     let rows: Vec<(&str, String)> = positions.iter().zip(&deck).map(|(p, c)| (*p, format!("{c}{}", if o.rng.next() % 4 == 0 { " (reversed)" } else { "" }))).collect();
-    Ok(format!("{}\n\nFor fun only.", table(&rows)))
+    Ok(table(&rows).note("For fun only."))
 }
 
 const RUNES: [(&str, &str); 24] = [
@@ -335,10 +347,10 @@ const RUNES: [(&str, &str); 24] = [
     ("ᛖ Ehwaz", "trust"), ("ᛗ Mannaz", "community"), ("ᛚ Laguz", "intuition"), ("ᛜ Ingwaz", "new beginnings"), ("ᛞ Dagaz", "a breakthrough"), ("ᛟ Othala", "home"),
 ];
 
-fn runes(_: &str, o: &mut Opts) -> Result<String, String> {
+fn runes(_: &str, o: &mut Opts) -> Result<Output, String> {
     let mut idx: Vec<usize> = (0..24).collect();
     o.rng.shuffle(&mut idx);
-    Ok(idx.iter().take(o.number.max(1)).map(|i| format!("{} — {}", RUNES[*i].0, RUNES[*i].1)).collect::<Vec<_>>().join("\n"))
+    Ok(table(&idx.iter().take(o.number.max(1)).map(|i| (RUNES[*i].0, RUNES[*i].1.to_owned())).collect::<Vec<_>>()))
 }
 
 fn reduce(mut n: u64) -> u64 {
@@ -348,7 +360,7 @@ fn reduce(mut n: u64) -> u64 {
     n
 }
 
-fn numerology(_: &str, o: &mut Opts) -> Result<String, String> {
+fn numerology(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (y, m, d) = super::dates::civil_from_days(o.date(0)?);
     let life = reduce(reduce(y as u64) + reduce(m as u64) + reduce(d as u64));
     let name = o.field(1).to_lowercase();
@@ -365,7 +377,7 @@ fn numerology(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn biorhythm(_: &str, o: &mut Opts) -> Result<String, String> {
+fn biorhythm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let days = (o.date(1)? - o.date(0)?) as f64;
     let wave = |p: f64| (2.0 * std::f64::consts::PI * days / p).sin() * 100.0;
     Ok(table(&[
@@ -376,18 +388,23 @@ fn biorhythm(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn life_weeks(_: &str, o: &mut Opts) -> Result<String, String> {
+fn life_weeks(_: &str, o: &mut Opts) -> Result<Output, String> {
     let lived = ((o.date(1)? - o.date(0)?) / 7).max(0) as usize;
     let years = o.opt_num(2)?.unwrap_or(80.0).clamp(1.0, 120.0) as usize;
-    let mut out = vec![format!("{} of {} weeks lived ({}%)", fmt(lived as f64, 0), fmt((years * 52) as f64, 0), fmt(lived as f64 * 100.0 / (years * 52) as f64, 1))];
+    let mut out = Vec::new();
     for y in 0..years {
         let row: String = (0..52).map(|w| if y * 52 + w < lived { '■' } else { '□' }).collect();
         out.push(format!("{y:>3} {row}"));
     }
-    Ok(out.join("\n"))
+    Ok(table(&[
+        ("Weeks lived", fmt(lived as f64, 0)),
+        ("Of", fmt((years * 52) as f64, 0)),
+        ("Share", format!("{}%", fmt(lived as f64 * 100.0 / (years * 52) as f64, 1))),
+    ])
+    .code(out.join("\n")))
 }
 
-fn t9(text: &str, o: &mut Opts) -> Result<String, String> {
+fn t9(text: &str, o: &mut Opts) -> Result<Output, String> {
     const KEYS: [&str; 10] = [" ", "", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"];
     if o.mode == "multitap" {
         return Ok(text
@@ -395,9 +412,10 @@ fn t9(text: &str, o: &mut Opts) -> Result<String, String> {
             .chars()
             .map(|c| KEYS.iter().enumerate().find_map(|(k, s)| s.find(c).map(|i| k.to_string().repeat(i + 1))).unwrap_or_else(|| c.to_string()))
             .collect::<Vec<_>>()
-            .join(" "));
+            .join(" ")
+            .into());
     }
-    Ok(text.to_lowercase().chars().map(|c| KEYS.iter().position(|s| s.contains(c)).map_or(c, |k| (b'0' + k as u8) as char)).collect())
+    Ok(super::snippet(text.to_lowercase().chars().map(|c| KEYS.iter().position(|s| s.contains(c)).map_or(c, |k| (b'0' + k as u8) as char)).collect()))
 }
 
 const PROMPTS: [&str; 16] = [
@@ -409,8 +427,8 @@ const PROMPTS: [&str; 16] = [
     "Someone keeps leaving flowers on the same bench.", "Write about the first day of a strange new job.", "A clock in the house starts running backwards.",
 ];
 
-fn prompt(_: &str, o: &mut Opts) -> Result<String, String> {
-    Ok(PROMPTS[o.rng.below(PROMPTS.len())].into())
+fn prompt(_: &str, o: &mut Opts) -> Result<Output, String> {
+    Ok(super::prose(PROMPTS[o.rng.below(PROMPTS.len())]))
 }
 
 pub const RANDOM: &[Tool] = &[

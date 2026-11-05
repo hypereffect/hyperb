@@ -1,6 +1,7 @@
 //! Tools on markup: HTML and XML formatting and escaping, XML and JSON,
 //! HTML and Markdown.
 
+use super::Output;
 use super::Opts;
 use super::code::json_text;
 use hypereffect::{Map, Value};
@@ -148,7 +149,7 @@ fn open_tag(name: &str, attrs: &[(&str, String)], closed: bool, xml: bool) -> St
 
 /// Indents markup one element per line; in HTML, inline elements stay on
 /// the line of their text.
-fn format_markup(src: &str, indent: usize, xml: bool, minify: bool) -> Result<String, String> {
+fn format_markup(src: &str, indent: usize, xml: bool, minify: bool) -> Result<Output, String> {
     let tokens = tokenize(src)?;
     let pad = |depth: usize| " ".repeat(depth * indent);
     let mut out = String::new();
@@ -272,14 +273,14 @@ fn format_markup(src: &str, indent: usize, xml: bool, minify: bool) -> Result<St
     let rest = line.trim_start_matches('\u{0}').to_owned();
     line = rest;
     flush(&mut out, &mut line, depth);
-    Ok(out)
+    Ok(out.into())
 }
 
-pub fn html(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn html(text: &str, o: &mut Opts) -> Result<Output, String> {
     format_markup(text, o.number, false, o.mode == "minify")
 }
 
-pub fn xml(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn xml(text: &str, o: &mut Opts) -> Result<Output, String> {
     // Only well-formed XML is formatted.
     parse_xml(text)?;
     format_markup(text, o.number, true, o.mode == "minify")
@@ -353,14 +354,14 @@ pub fn unescape(s: &str) -> String {
     out
 }
 
-pub fn html_escape(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn html_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(match o.mode {
         "unescape" => unescape(text),
         _ => escape_html(text),
-    })
+    }.into())
 }
 
-pub fn xml_escape(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn xml_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(match o.mode {
         "unescape" => unescape(text),
         _ => text
@@ -369,7 +370,7 @@ pub fn xml_escape(text: &str, o: &mut Opts) -> Result<String, String> {
             .replace('>', "&gt;")
             .replace('"', "&quot;")
             .replace('\'', "&apos;"),
-    })
+    }.into())
 }
 
 // XML and JSON
@@ -449,11 +450,11 @@ fn node_json(n: &Node) -> Value {
     Value::Object(m)
 }
 
-pub fn xml_to_json(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn xml_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let root = parse_xml(text)?;
     let mut m = Map::new();
     m.insert(root.name.clone(), node_json(&root));
-    Ok(json_text(&Value::Object(m), o.number))
+    Ok(json_text(&Value::Object(m), o.number).into())
 }
 
 fn xml_name(key: &str) -> String {
@@ -522,7 +523,7 @@ fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-pub fn json_to_xml(text: &str, o: &mut Opts) -> Result<String, String> {
+pub fn json_to_xml(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v: Value = serde_json_parse(text)?;
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
     out.push(if o.number > 0 { '\n' } else { ' ' });
@@ -537,7 +538,7 @@ pub fn json_to_xml(text: &str, o: &mut Opts) -> Result<String, String> {
         }
         _ => value_xml("root", &v, 0, o.number, &mut out),
     }
-    Ok(out.trim_end().to_owned())
+    Ok(out.trim_end().to_owned().into())
 }
 
 fn serde_json_parse(text: &str) -> Result<Value, String> {
@@ -546,7 +547,7 @@ fn serde_json_parse(text: &str) -> Result<Value, String> {
 
 // HTML and Markdown
 
-pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<Output, String> {
     let tokens = tokenize(text)?;
     let mut out = String::new();
     // The open lists, `None` for bullets or the next number.
@@ -685,7 +686,7 @@ pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<String, String> {
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
-        .to_owned())
+        .to_owned().into())
 }
 
 /// Inline Markdown: code, images, links, bold, italics and strikethrough.
@@ -770,7 +771,11 @@ fn list_item(line: &str) -> Option<(bool, usize, &str)> {
     (digits > 0).then_some((true, indent, rest))
 }
 
-pub fn markdown_to_html(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn markdown_to_html(text: &str, _: &mut Opts) -> Result<Output, String> {
+    markdown_html(text).map(Output::from)
+}
+
+fn markdown_html(text: &str) -> Result<String, String> {
     let mut out: Vec<String> = Vec::new();
     let mut para: Vec<String> = Vec::new();
     let mut lists: Vec<(bool, usize)> = Vec::new();
@@ -826,7 +831,7 @@ pub fn markdown_to_html(text: &str, _: &mut Opts) -> Result<String, String> {
                 i += 1;
                 quoted.push(lines[i].trim()[1..].trim_start().to_owned());
             }
-            let inner = markdown_to_html(&quoted.join("\n"), &mut super::Opts::new("", &mut super::Rng(0)))?;
+            let inner = markdown_html(&quoted.join("\n"))?;
             out.push(format!("<blockquote>\n{inner}\n</blockquote>"));
         } else if let Some((ordered, indent, rest)) = list_item(line) {
             flush(&mut out, &mut para);
@@ -865,7 +870,7 @@ pub fn markdown_to_html(text: &str, _: &mut Opts) -> Result<String, String> {
     Ok(joined.replace("\n</li>\n<li>", "</li>\n<li>"))
 }
 
-pub fn preserve_spaces(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn preserve_spaces(text: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(text
         .lines()
         .map(|l| {
@@ -891,13 +896,13 @@ pub fn preserve_spaces(text: &str, _: &mut Opts) -> Result<String, String> {
             out
         })
         .collect::<Vec<_>>()
-        .join("<br>\n"))
+        .join("<br>\n").into())
 }
 
 /// Document text, as pasted from a word processor, as HTML: paragraphs,
 /// headings (short lines without a final stop, followed by a blank line),
 /// and bulleted or numbered lists.
-pub fn word_to_html(text: &str, _: &mut Opts) -> Result<String, String> {
+pub fn word_to_html(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut out = Vec::new();
     fn bullet(l: &str) -> Option<&str> {
         l.strip_prefix(['•', '◦', '▪', '·', '-', '*', '–', '●', '○', '■'])
@@ -925,7 +930,7 @@ pub fn word_to_html(text: &str, _: &mut Opts) -> Result<String, String> {
             out.push(format!("<p>{}</p>", body.join("<br>\n")));
         }
     }
-    Ok(out.join("\n"))
+    Ok(out.join("\n").into())
 }
 
 #[cfg(test)]
@@ -933,11 +938,11 @@ mod tests {
     use super::super::{Opts, Rng};
     use super::*;
 
-    fn run(f: fn(&str, &mut Opts) -> Result<String, String>, text: &str, mode: &str) -> String {
+    fn run(f: fn(&str, &mut Opts) -> Result<Output, String>, text: &str, mode: &str) -> String {
         let mut rng = Rng(1);
         let mut o = Opts::new(mode, &mut rng);
         o.number = 2;
-        f(text, &mut o).unwrap()
+        f(text, &mut o).unwrap().plain()
     }
 
     #[test]

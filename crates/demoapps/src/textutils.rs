@@ -1,11 +1,12 @@
 //! The text utilities demo: a pocket knife of small tools on one form.
 //!
 //! The client picks a category and a tool; the form then shows what that
-//! tool takes (a text box, up to eight fields, three menus, two checkboxes
-//! and a slider, each labelled by the tool) and the server answers with text,
-//! and for some tools a picture. Tools run again whenever an input changes.
-//! This one holds no memory between sessions; it ticks only to know the time,
-//! for the tools on dates and for random seeds.
+//! tool takes (a text box, fields, menus, checkboxes and a slider, each with
+//! an id from the tool and its label) and, when the user presses Run, the
+//! server answers with the tool's output as elements: values, tables, lists,
+//! code, verdicts and pictures. The interface is a view of the server's
+//! state, diffed with `vtree`. This one holds no memory between sessions; it
+//! ticks only to know the time, for the tools on dates and for random seeds.
 
 mod calc;
 mod code;
@@ -15,6 +16,7 @@ mod encode;
 mod markup;
 mod math;
 mod names;
+mod output;
 mod pictures;
 mod random;
 mod science;
@@ -22,17 +24,12 @@ mod text;
 mod units;
 mod web;
 
-use super::common::feedback;
-use super::img;
-use hypereffect::{Action, App, Handler, Outbox, Value, cel, json, ui};
+pub use output::Output;
+use hypereffect::vtree::{self, Node};
+use hypereffect::{Action, App, Handler, Outbox, Value, cel, json};
 use std::collections::BTreeMap;
 
-/// The slots of the form: fields, menus and checkboxes.
-const FIELDS: usize = 8;
-const SELECTS: usize = 3;
-const CHECKS: usize = 2;
-
-pub type Run = fn(&str, &mut Opts) -> Result<String, String>;
+pub type Run = fn(&str, &mut Opts) -> Result<Output, String>;
 pub type Menu = &'static [(&'static str, &'static str)];
 
 /// A tool: what the form shows for it, and the function that runs it on the
@@ -98,47 +95,77 @@ impl Tool {
         }
     }
 
-    /// The JSON of the form, every slot present so that no expression reads
-    /// a missing one.
-    fn form_json(&self) -> Value {
-        let fields: Vec<Value> = (0..FIELDS)
-            .map(|i| json!({"label": self.fields.get(i).map_or("", |f| f.0)}))
-            .collect();
-        let selects: Vec<Value> = (0..SELECTS)
-            .map(|i| match self.selects.get(i) {
-                Some((label, options)) => json!({"label": label, "options": super::common::menu(options)}),
-                None => json!({"label": "", "options": []}),
-            })
-            .collect();
-        let checks: Vec<Value> = (0..CHECKS)
-            .map(|i| json!(self.checks.get(i).copied().unwrap_or("")))
-            .collect();
-        let (label, min, max, _) = self.slider.unwrap_or(("", 0.0, 1.0, 0.0));
-        json!({
-            "about": self.about,
-            "text": self.text,
-            "fields": fields,
-            "selects": selects,
-            "checks": checks,
-            "slider": {"label": label, "min": min, "max": max},
-        })
+    /// The options of the form, in order: fields, menus, checkboxes, slider.
+    fn options(&self) -> Vec<Opt> {
+        let mut all: Vec<Opt> = Vec::new();
+        all.extend(self.fields.iter().map(|&(label, value)| Opt::new(label, Kind::Field(value))));
+        all.extend(self.selects.iter().map(|&(label, menu)| Opt::new(label, Kind::Select(menu))));
+        all.extend(self.checks.iter().map(|&label| Opt::new(label, Kind::Check)));
+        all.extend(self.slider.map(|(label, min, max, value)| Opt::new(label, Kind::Slider(min, max, value))));
+        // A label is named without its parenthesis (“Weight (kg)” is
+        // `weight`), unless two would then share a name.
+        let short: Vec<String> = all.iter().map(|o| output::slug(o.label.split(" (").next().unwrap_or(o.label))).collect();
+        for (i, o) in all.iter_mut().enumerate() {
+            o.name = if short.iter().filter(|s| **s == short[i]).count() == 1 {
+                short[i].clone()
+            } else {
+                output::slug(o.label)
+            };
+        }
+        all
     }
 
-    /// The initial values of the form's slots.
+    /// The signal under which the form keeps this tool's options: the id in
+    /// snake case, after `tool_` if it starts with a digit (as `555` does).
+    fn key(&self) -> String {
+        let key = self.id.replace('-', "_");
+        if key.starts_with(|c: char| c.is_ascii_digit()) { format!("tool_{key}") } else { key }
+    }
+
+    /// The initial values of the options.
     fn defaults(&self) -> Value {
-        let mut form = hypereffect::Map::new();
-        for i in 0..FIELDS {
-            form.insert(format!("f{i}"), json!(self.fields.get(i).map_or("", |f| f.1)));
-        }
-        for i in 0..SELECTS {
-            let first = self.selects.get(i).and_then(|s| s.1.first()).map_or("", |o| o.0);
-            form.insert(format!("s{i}"), json!(first));
-        }
-        for i in 0..CHECKS {
-            form.insert(format!("c{i}"), json!(false));
-        }
-        form.insert("slider".into(), json!(self.slider.map_or(0.0, |s| s.3)));
-        Value::Object(form)
+        let values: hypereffect::Map<String, Value> = self
+            .options()
+            .into_iter()
+            .map(|o| {
+                let v = match o.kind {
+                    Kind::Field(v) => json!(v),
+                    Kind::Select(menu) => json!(menu.first().map_or("", |m| m.0)),
+                    Kind::Check => json!(false),
+                    Kind::Slider(_, _, v) => json!(v),
+                };
+                (o.key(), v)
+            })
+            .collect();
+        Value::Object(values)
+    }
+}
+
+/// An option of a tool's form.
+struct Opt {
+    label: &'static str,
+    /// The option's name, from its label, in kebab case.
+    name: String,
+    kind: Kind,
+}
+
+enum Kind {
+    /// A field and its initial value.
+    Field(&'static str),
+    Select(Menu),
+    Check,
+    /// Minimum, maximum and initial value.
+    Slider(f64, f64, f64),
+}
+
+impl Opt {
+    fn new(label: &'static str, kind: Kind) -> Self {
+        Opt { label, name: String::new(), kind }
+    }
+
+    /// The name as a signal path segment.
+    fn key(&self) -> String {
+        self.name.replace('-', "_")
     }
 }
 
@@ -185,10 +212,6 @@ pub struct Opts<'a> {
     pub rng: &'a mut Rng,
     /// The host's clock, in milliseconds since 1970, or 0 before it is known.
     pub now_ms: f64,
-    /// A line to show under the result.
-    pub info: Option<String>,
-    /// A PNG to show with the result.
-    pub image: Option<Vec<u8>>,
     fields: Vec<&'a str>,
     choices: Vec<&'a str>,
     checks: Vec<bool>,
@@ -205,8 +228,6 @@ impl<'a> Opts<'a> {
             number: 0,
             rng,
             now_ms: 0.0,
-            info: None,
-            image: None,
             fields: Vec::new(),
             choices: vec![mode],
             checks: Vec::new(),
@@ -325,19 +346,34 @@ pub fn fmt(v: f64, digits: usize) -> String {
     if frac.is_empty() { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{frac}") }
 }
 
-/// Aligned `label: value` lines.
-pub fn table(rows: &[(&str, String)]) -> String {
-    let width = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0);
-    rows.iter()
-        .map(|(l, v)| {
-            if l.is_empty() {
-                v.clone()
-            } else {
-                format!("{l}:{} {v}", " ".repeat(width - l.chars().count()))
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Text to copy or to work on again.
+pub fn snippet(text: String) -> Output {
+    Output::default().code(text)
+}
+
+/// Labelled values.
+pub fn table(rows: &[(&str, String)]) -> Output {
+    Output::default().facts(rows)
+}
+
+/// Items, one per line.
+pub fn list(items: impl IntoIterator<Item = impl Into<String>>) -> Output {
+    Output::default().list(items)
+}
+
+/// Rows under a header.
+pub fn grid<S: Into<String>>(head: &[&str], rows: impl IntoIterator<Item = Vec<S>>) -> Output {
+    Output::default().table(head, rows)
+}
+
+/// Whether the input passed a check.
+pub fn verdict(ok: bool, text: impl Into<String>) -> Output {
+    Output::default().verdict(ok, text)
+}
+
+/// Prose.
+pub fn prose(text: impl Into<String>) -> Output {
+    Output::default().text(text)
 }
 
 /// The categories, in menu order.
@@ -380,302 +416,263 @@ const CATEGORIES: &[(&str, &str, &[Tool])] = &[
     ("reference", "Reference", web::REFERENCE),
 ];
 
-fn category(id: &str) -> &'static (&'static str, &'static str, &'static [Tool]) {
-    CATEGORIES.iter().find(|c| c.0 == id).unwrap_or(&CATEGORIES[0])
+fn find(id: &str) -> Option<(usize, &'static Tool)> {
+    CATEGORIES
+        .iter()
+        .enumerate()
+        .find_map(|(c, cat)| cat.2.iter().find(|t| t.id == id).map(|t| (c, t)))
 }
 
-fn find(id: &str) -> Option<&'static Tool> {
-    CATEGORIES.iter().flat_map(|c| c.2.iter()).find(|t| t.id == id)
+fn menu<T>(items: &[T], f: impl Fn(&T) -> (&'static str, &'static str)) -> Value {
+    Value::Array(items.iter().map(f).map(|(value, label)| json!({"value": value, "label": label})).collect())
 }
 
-fn tool_menu(tools: &[Tool]) -> Vec<Value> {
-    tools.iter().map(|t| json!({"value": t.id, "label": t.name})).collect()
-}
-
-#[derive(Default)]
 pub struct TextUtils {
     rng: Option<Rng>,
     now_ms: f64,
+    /// The chosen category, an index into `CATEGORIES`.
+    category: usize,
+    tool: &'static Tool,
+    /// What the last run of `tool` gave, if it ran since it was chosen.
+    result: Option<Result<Output, String>>,
+    /// The interface as last sent.
+    shown: Vec<Node>,
+}
+
+impl Default for TextUtils {
+    fn default() -> Self {
+        TextUtils {
+            rng: None,
+            now_ms: 0.0,
+            category: 0,
+            tool: &CATEGORIES[0].2[0],
+            result: None,
+            shown: Vec::new(),
+        }
+    }
 }
 
 impl TextUtils {
-    /// Shows `tool`'s form with its initial values, and runs it.
-    fn pick(&mut self, out: &mut Outbox, action: &Action, tool: &'static Tool) {
-        out.signal(json!({"tool": tool.form_json(), "form": tool.defaults()}));
-        // The action carries the old values: run on the new ones.
-        let mut signals = action.signals.clone();
-        if let Some(Value::Object(form)) = signals.get_mut("form") {
-            if let Value::Object(d) = tool.defaults() {
-                form.extend(d);
-            }
-            form.insert("tool".into(), json!(tool.id));
-        }
-        let action = Action { name: action.name.clone(), payload: None, signals };
-        self.run(out, &action, true);
+    fn view(&self) -> Node {
+        let tool = self.tool;
+        let (_, _, tools) = CATEGORIES[self.category];
+        vtree::column("main").gap("large").children([
+            vtree::text("title").variant("h1").text("Text Utilities"),
+            vtree::card("picker").children([
+                vtree::row("menus").gap("medium").wrap(true).children([
+                    vtree::select("category")
+                        .label("Category")
+                        .bind("nav.category")
+                        .options(menu(CATEGORIES, |c| (c.0, c.1)))
+                        .on_change(Handler::action("category")),
+                    vtree::select("tool")
+                        .label("Tool")
+                        .bind("nav.tool")
+                        .options(menu(tools, |t| (t.id, t.name)))
+                        .on_change(Handler::action("tool")),
+                ]),
+                vtree::text("about").variant("caption").text(tool.about),
+            ]),
+        ])
+        .children(self.options())
+        .children((!tool.text.is_empty()).then(|| {
+            vtree::card("source").title(tool.text).child(
+                vtree::input("source-text")
+                    .bind("text")
+                    .variant("multiline")
+                    .placeholder("Paste text here…"),
+            )
+        }))
+        .child(self.actions())
+        .child(self.result())
     }
 
-    fn run(&mut self, out: &mut Outbox, action: &Action, quiet: bool) {
-        let s = |path: &str| action.signal(path).and_then(Value::as_str).unwrap_or_default();
-        let Some(tool) = find(s("form.tool")) else {
-            return;
-        };
-        let text = s("form.text");
-        if !tool.text.is_empty() && text.trim().is_empty() {
-            out.signal(json!({"result": {"text": "", "image": "", "info": ""}}));
-            out.signal(feedback(if quiet { "info" } else { "failure" }, if quiet { "" } else { "Paste some text first." }));
-            return;
+    /// The card of the tool's options, with ids such as `loan-interest-rate`.
+    fn options(&self) -> Option<Node> {
+        let tool = self.tool;
+        let opts = tool.options();
+        if opts.is_empty() {
+            return None;
         }
-        let fields: Vec<&str> = (0..FIELDS).map(|i| s(&format!("form.f{i}"))).collect();
+        let key = tool.key();
+        let id = |o: &Opt| format!("{}-{}", tool.id, o.name);
+        let bind = |o: &Opt| format!("args.{key}.{}", o.key());
+        let menus = opts.iter().filter_map(|o| match o.kind {
+            Kind::Select(m) => Some(vtree::select(id(o)).label(o.label).bind(bind(o)).options(super::common::menu(m))),
+            _ => None,
+        });
+        let fields = opts.iter().filter_map(|o| match o.kind {
+            Kind::Field(_) => Some(vtree::input(id(o)).label(o.label).bind(bind(o))),
+            _ => None,
+        });
+        let rest = opts.iter().filter_map(|o| match o.kind {
+            Kind::Check => Some(vtree::checkbox(id(o)).label(o.label).bind(bind(o))),
+            Kind::Slider(min, max, _) => Some(
+                vtree::slider(id(o))
+                    .label(cel(format!("'{}: ' + string(int(s.args.{key}.{}))", o.label.replace('\'', "\\'"), o.key())))
+                    .bind(bind(o))
+                    .min(min)
+                    .max(max),
+            ),
+            _ => None,
+        });
+        Some(
+            vtree::card(format!("{}-options", tool.id))
+                .title("Options")
+                .child(vtree::row(format!("{}-menus", tool.id)).gap("medium").wrap(true).children(menus))
+                .child(vtree::row(format!("{}-fields", tool.id)).gap("medium").wrap(true).children(fields))
+                .children(rest),
+        )
+    }
+
+    fn actions(&self) -> Node {
+        let takes_text = !self.tool.text.is_empty();
+        let reusable = matches!(&self.result, Some(Ok(o)) if o.reusable().is_some());
+        vtree::row("actions")
+            .wrap(true)
+            .child(
+                vtree::button("run")
+                    .label(cel("s._running ? 'Running…' : 'Run'"))
+                    .variant("primary")
+                    .disabled(cel("s._running"))
+                    .on_press(Handler::action("run").indicator("_running")),
+            )
+            .children((takes_text && reusable).then(|| {
+                vtree::button("reuse")
+                    .label("Use the result as input")
+                    .on_press(Handler::patch(json!({"text": cel("s.result.text")})))
+            }))
+            .children(takes_text.then(|| {
+                vtree::button("clear")
+                    .label("Clear")
+                    .variant("plain")
+                    .visible(cel("s.text != ''"))
+                    .on_press(Handler::patch(json!({"text": ""})))
+            }))
+    }
+
+    fn result(&self) -> Node {
+        let card = vtree::card("result").title("Result");
+        match &self.result {
+            None => card.child(vtree::text("result-pending").variant("caption").text(if self.tool.text.is_empty() {
+                "Fill in the options and press Run."
+            } else {
+                "Paste some text and press Run."
+            })),
+            Some(Err(e)) => card.child(vtree::notice("result-error").variant("failure").text(e.as_str())),
+            Some(Ok(o)) => card.children(o.view("result", !self.tool.text.is_empty())),
+        }
+    }
+
+    /// Sends what changed since the last call, and remembers what was sent.
+    fn update(&mut self, out: &mut Outbox) {
+        let next = vec![self.view()];
+        out.extend(vtree::diff_into(None, &self.shown, &next));
+        self.shown = next;
+    }
+
+    /// Chooses `tool`, with its options as the user left them or else at
+    /// their initial values. Its form starts without a result.
+    fn pick(&mut self, out: &mut Outbox, action: &Action, category: usize, tool: &'static Tool) {
+        self.category = category;
+        self.tool = tool;
+        self.result = None;
+        let mut patch = json!({"nav": {"category": CATEGORIES[category].0, "tool": tool.id}});
+        if !matches!(action.signal(&format!("args.{}", tool.key())), Some(Value::Object(_))) {
+            patch["args"] = json!({tool.key(): tool.defaults()});
+        }
+        out.signal(patch);
+    }
+
+    fn run(&mut self, action: &Action) -> Result<Output, String> {
+        let tool = self.tool;
+        let text = action.signal("text").and_then(Value::as_str).unwrap_or_default();
+        if !tool.text.is_empty() && text.trim().is_empty() {
+            return Err("Paste some text first.".into());
+        }
+        let key = tool.key();
+        let opts = tool.options();
+        let arg = |o: &Opt| action.signal(&format!("args.{key}.{}", o.key()));
+        let fields: Vec<&str> = opts
+            .iter()
+            .filter(|o| matches!(o.kind, Kind::Field(_)))
+            .map(|o| arg(o).and_then(Value::as_str).unwrap_or_default())
+            .collect();
         // A menu's value must be one of its options.
-        let choices: Vec<&str> = (0..SELECTS)
-            .map(|i| {
-                let options = tool.selects.get(i).map_or(&[][..], |m| m.1);
-                let v = s(&format!("form.s{i}"));
-                options.iter().find(|o| o.0 == v).or(options.first()).map_or("", |o| o.0)
+        let mut choices: Vec<&str> = opts
+            .iter()
+            .filter_map(|o| match o.kind {
+                Kind::Select(menu) => {
+                    let v = arg(o).and_then(Value::as_str).unwrap_or_default();
+                    Some(menu.iter().find(|m| m.0 == v).or(menu.first()).map_or("", |m| m.0))
+                }
+                _ => None,
             })
             .collect();
-        let checks: Vec<bool> = (0..CHECKS)
-            .map(|i| action.signal(&format!("form.c{i}")).and_then(Value::as_bool).unwrap_or(false))
+        if choices.is_empty() {
+            choices.push("");
+        }
+        let checks: Vec<bool> = opts
+            .iter()
+            .filter(|o| matches!(o.kind, Kind::Check))
+            .map(|o| arg(o).and_then(Value::as_bool).unwrap_or(false))
             .collect();
-        let slider = match tool.slider {
-            Some((_, min, max, value)) => {
-                action.signal("form.slider").and_then(Value::as_f64).unwrap_or(value).clamp(min, max)
-            }
-            None => 0.0,
-        };
+        let slider = opts.iter().find_map(|o| match o.kind {
+            Kind::Slider(min, max, value) => Some(arg(o).and_then(Value::as_f64).unwrap_or(value).clamp(min, max)),
+            _ => None,
+        });
         let now_ms = self.now_ms;
         let rng = self.rng.get_or_insert_with(|| Rng(now_ms.to_bits()));
         let mut o = Opts {
             mode: choices[0],
-            first: fields[0],
-            second: fields[1],
-            flag: checks[0],
-            number: slider.round() as usize,
+            first: fields.first().copied().unwrap_or(""),
+            second: fields.get(1).copied().unwrap_or(""),
+            flag: checks.first().copied().unwrap_or(false),
+            number: slider.unwrap_or(0.0).round() as usize,
             rng,
             now_ms,
-            info: None,
-            image: None,
             fields,
             choices,
             checks,
             labels: tool.fields,
         };
-        match (tool.run)(text, &mut o) {
-            Ok(result) => {
-                let info = o.info.take().unwrap_or_else(|| {
-                    if tool.text.is_empty() {
-                        String::new()
-                    } else if result.is_empty() {
-                        "The result is empty.".into()
-                    } else {
-                        let lines = result.lines().count();
-                        format!(
-                            "{lines} line{} · {} characters",
-                            if lines == 1 { "" } else { "s" },
-                            result.chars().count()
-                        )
-                    }
-                });
-                let image = o.image.as_deref().map_or(String::new(), img::data_uri);
-                out.signal(json!({"result": {"text": result, "image": image, "info": info}}));
-                out.signal(feedback("info", ""));
-            }
-            Err(e) => {
-                out.signal(json!({"result": {"text": "", "image": "", "info": ""}}));
-                out.signal(feedback("failure", e));
-            }
-        }
+        (tool.run)(text, &mut o)
     }
 }
 
 impl App for TextUtils {
     fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
-        let (cat, _, tools) = CATEGORIES[0];
-        let first = &tools[0];
-        let mut form = first.defaults();
-        form["category"] = json!(cat);
-        form["tool"] = json!(first.id);
-        form["text"] = json!("");
-        let categories: Vec<Value> = CATEGORIES.iter().map(|(id, label, _)| json!({"value": id, "label": label})).collect();
+        let tool = self.tool;
         out.signal(json!({
-            "form": form,
-            "menu": {"categories": categories, "tools": tool_menu(tools)},
-            "tool": first.form_json(),
-            "result": {"text": "", "image": "", "info": ""},
-            "feedback": {"kind": "info", "text": ""},
+            "nav": {"category": CATEGORIES[self.category].0, "tool": tool.id},
+            "args": {tool.key(): tool.defaults()},
+            "text": "",
+            "result": {"text": ""},
+            "_running": false,
         }));
-        out.element(ui::column("main").gap("large"));
-        out.element(ui::text("title").parent("main").variant("h1").text("Text Utilities"));
-
-        out.element(ui::card("picker").parent("main").gap("medium"));
-        out.element(ui::row("menus").parent("picker").gap("medium").wrap(true));
-        out.element(
-            ui::select("category")
-                .parent("menus")
-                .label("Category")
-                .bind("form.category")
-                .options(cel("s.menu.categories"))
-                .on_change(Handler::action("category")),
-        );
-        out.element(
-            ui::select("tool")
-                .parent("menus")
-                .label("Tool")
-                .bind("form.tool")
-                .options(cel("s.menu.tools"))
-                .on_change(Handler::action("tool")),
-        );
-        out.element(ui::text("about").parent("picker").variant("caption").text(cel("s.tool.about")));
-
-        let rerun = || Handler::action("change");
-        out.element(
-            ui::card("options")
-                .parent("main")
-                .title("Options")
-                .visible(cel(
-                    "s.tool.fields.exists(f, f.label != '') || s.tool.selects.exists(m, m.label != '') \
-                     || s.tool.checks.exists(c, c != '') || s.tool.slider.label != ''",
-                )),
-        );
-        out.element(ui::row("option-menus").parent("options").gap("medium").wrap(true));
-        for i in 0..SELECTS {
-            out.element(
-                ui::select(format!("s{i}"))
-                    .parent("option-menus")
-                    .label(cel(format!("s.tool.selects[{i}].label")))
-                    .bind(format!("form.s{i}"))
-                    .options(cel(format!("s.tool.selects[{i}].options")))
-                    .visible(cel(format!("s.tool.selects[{i}].label != ''")))
-                    .on_change(rerun()),
-            );
-        }
-        out.element(ui::row("option-fields").parent("options").gap("medium").wrap(true));
-        for i in 0..FIELDS {
-            out.element(
-                ui::input(format!("f{i}"))
-                    .parent("option-fields")
-                    .label(cel(format!("s.tool.fields[{i}].label")))
-                    .bind(format!("form.f{i}"))
-                    .visible(cel(format!("s.tool.fields[{i}].label != ''")))
-                    .on_change(rerun())
-                    .on_submit(rerun()),
-            );
-        }
-        for i in 0..CHECKS {
-            out.element(
-                ui::checkbox(format!("c{i}"))
-                    .parent("options")
-                    .label(cel(format!("s.tool.checks[{i}]")))
-                    .bind(format!("form.c{i}"))
-                    .visible(cel(format!("s.tool.checks[{i}] != ''")))
-                    .on_change(rerun()),
-            );
-        }
-        out.element(
-            ui::slider("slider")
-                .parent("options")
-                .label(cel("s.tool.slider.label + ': ' + string(int(s.form.slider))"))
-                .bind("form.slider")
-                .min(cel("s.tool.slider.min"))
-                .max(cel("s.tool.slider.max"))
-                .visible(cel("s.tool.slider.label != ''"))
-                .on_change(rerun()),
-        );
-
-        out.element(
-            ui::card("input")
-                .parent("main")
-                .title(cel("s.tool.text"))
-                .visible(cel("s.tool.text != ''")),
-        );
-        out.element(
-            ui::input("source")
-                .parent("input")
-                .bind("form.text")
-                .variant("multiline")
-                .placeholder("Paste text here…")
-                .on_change(rerun()),
-        );
-        out.element(ui::row("actions").parent("main").gap("small").wrap(true));
-        out.element(
-            ui::button("run")
-                .parent("actions")
-                .label(cel("s.tool.text != '' ? 'Run' : 'Run again'"))
-                .variant("primary")
-                .on_press(Handler::action("run")),
-        );
-        out.element(
-            ui::button("reuse")
-                .parent("actions")
-                .label("Use the result as input")
-                .visible(cel("s.tool.text != '' && s.result.text != ''"))
-                .on_press(Handler::action("change").with_patch(json!({"form": {"text": cel("s.result.text")}}))),
-        );
-        out.element(
-            ui::button("clear")
-                .parent("actions")
-                .label("Clear")
-                .variant("plain")
-                .visible(cel("s.tool.text != '' && s.form.text != ''"))
-                .on_press(Handler::action("change").with_patch(json!({"form": {"text": ""}}))),
-        );
-
-        out.element(ui::card("result").parent("main").title("Result").gap("medium"));
-        out.element(
-            ui::text("empty")
-                .parent("result")
-                .variant("caption")
-                .visible(cel("s.result.text == '' && s.result.image == ''"))
-                .text(cel("s.tool.text != '' ? 'Paste some text above.' : 'Fill in the options above.'")),
-        );
-        out.element(
-            ui::image("picture")
-                .parent("result")
-                .variant("full")
-                .visible(cel("s.result.image != ''"))
-                .src(cel("s.result.image"))
-                .alt(cel("s.result.text != '' ? s.result.text : s.tool.about")),
-        );
-        out.element(
-            ui::text("output")
-                .parent("result")
-                .variant("code")
-                .visible(cel("s.result.text != ''"))
-                .text(cel("s.result.text")),
-        );
-        out.element(
-            ui::badge("info")
-                .parent("result")
-                .variant("info")
-                .visible(cel("s.result.info != ''"))
-                .text(cel("s.result.info")),
-        );
-        out.element(
-            ui::notice("feedback")
-                .parent("main")
-                .variant(cel("s.feedback.kind"))
-                .visible(cel("s.feedback.text != ''"))
-                .text(cel("s.feedback.text")),
-        );
+        self.update(out);
     }
 
     fn action(&mut self, out: &mut Outbox, action: &Action) {
-        let s = |path: &str| action.signal(path).and_then(Value::as_str).unwrap_or_default();
+        let nav = |name: &str| action.signal(&format!("nav.{name}")).and_then(Value::as_str).unwrap_or_default();
         match action.name.as_str() {
             "category" => {
-                let (id, _, tools) = category(s("form.category"));
-                out.signal(json!({"form": {"category": id}, "menu": {"tools": tool_menu(tools)}}));
-                self.pick(out, action, &tools[0]);
+                let c = CATEGORIES.iter().position(|c| c.0 == nav("category")).unwrap_or(self.category);
+                self.pick(out, action, c, &CATEGORIES[c].2[0]);
             }
-            "tool" => {
-                // A tool from another category is still a valid choice.
-                let tool = find(s("form.tool")).unwrap_or(&category(s("form.category")).2[0]);
-                self.pick(out, action, tool);
+            "tool" => match find(nav("tool")) {
+                Some((c, tool)) => self.pick(out, action, c, tool),
+                None => out.signal(json!({"nav": {"tool": self.tool.id}})),
+            },
+            "run" => {
+                let result = self.run(action);
+                let reuse = result.as_ref().ok().and_then(Output::reusable).unwrap_or_default();
+                out.signal(json!({"result": {"text": reuse}, "_running": false}));
+                self.result = Some(result);
             }
-            "change" => self.run(out, action, true),
-            "run" => self.run(out, action, false),
-            _ => {}
+            _ => return,
         }
+        self.update(out);
     }
 
     fn tick(&mut self, _: &mut Outbox, now_ms: f64) {
@@ -694,35 +691,46 @@ mod tests {
     use hypereffect::server::Loopback;
     use std::collections::HashSet;
 
+    fn pick(l: &mut Loopback<TextUtils>, category: &str, tool: &str) {
+        l.write("nav.category", json!(category));
+        assert!(l.trigger("category", "onChange"));
+        l.write("nav.tool", json!(tool));
+        assert!(l.trigger("tool", "onChange"));
+    }
+
     #[test]
-    fn ids_are_unique_and_forms_fit() {
+    fn tool_and_option_ids() {
         let mut seen = HashSet::new();
+        let mut clashes = Vec::new();
         for (_, _, tools) in CATEGORIES {
             assert!(!tools.is_empty());
             for t in *tools {
                 assert!(seen.insert(t.id), "{} twice", t.id);
-                assert!(t.fields.len() <= FIELDS, "{}", t.id);
-                assert!(t.selects.len() <= SELECTS, "{}", t.id);
-                assert!(t.checks.len() <= CHECKS, "{}", t.id);
+                assert!(hypereffect::signals::parse_path(&t.key()).is_some(), "{}", t.id);
+                let names: Vec<String> = t.options().into_iter().map(|o| o.name).collect();
+                let unique: HashSet<&String> = names.iter().collect();
+                if unique.len() != names.len() {
+                    clashes.push(format!("{}: {names:?}", t.id));
+                }
             }
         }
+        assert!(clashes.is_empty(), "options with the same name:\n{}", clashes.join("\n"));
     }
 
-    /// Every tool runs on its initial values (and a sample text) without
-    /// panicking; form-only tools also succeed.
+    /// Every tool shows its form and runs on its initial values (and a
+    /// sample text) without panicking; form-only tools also succeed.
     #[test]
     fn every_tool_runs() {
         let mut l = Loopback::<TextUtils>::new();
         l.tick(1_700_000_000_000.0);
-        l.write("form.text", json!("Hello World, 42 and 3.5 at 2024-01-02. <b>bold</b> {\"a\": 1}"));
+        l.write("text", json!("Hello World, 42 and 3.5 at 2024-01-02. <b>bold</b> {\"a\": 1}"));
         for (cat, _, tools) in CATEGORIES {
-            l.write("form.category", json!(cat));
-            assert!(l.trigger("category", "onChange"));
             for t in *tools {
-                l.write("form.tool", json!(t.id));
-                assert!(l.trigger("tool", "onChange"));
+                pick(&mut l, cat, t.id);
+                assert_eq!(l.client.value("nav.tool"), Some(&json!(t.id)));
+                assert!(l.trigger("run", "onPress"));
                 if t.text.is_empty() {
-                    assert_eq!(l.client.attr("feedback", "visible"), Some(json!(false)), "{}: {:?}", t.id, l.client.value("feedback.text"));
+                    assert_eq!(l.client.attr("result-error", "text"), None, "{}", t.id);
                 }
             }
         }
@@ -730,36 +738,40 @@ mod tests {
     }
 
     #[test]
-    fn counts_words() {
+    fn runs_only_on_request() {
         let mut l = Loopback::<TextUtils>::new();
-        l.write("form.tool", json!("counter"));
-        assert!(l.trigger("tool", "onChange"));
-        l.write("form.text", json!("rose rose tulip fern"));
-        assert!(l.trigger("source", "onChange"));
-        let out = l.client.attr("output", "text").unwrap();
-        assert!(out.as_str().unwrap().contains("Words:                     4"), "{out}");
+        pick(&mut l, "text", "counter");
+        l.write("text", json!("rose rose tulip fern"));
+        assert!(l.client.attr("result-pending", "text").is_some());
+        assert!(!l.trigger("source-text", "onChange"));
+        assert!(l.trigger("run", "onPress"));
+        assert_eq!(l.client.attr("result-facts-words-value", "text"), Some(json!("4")));
+        assert_eq!(l.client.value("_running"), Some(&json!(false)));
         assert!(l.client.take_diagnostics().is_empty());
     }
 
     #[test]
-    fn options_show_per_tool() {
+    fn options_have_named_ids() {
         let mut l = Loopback::<TextUtils>::new();
-        l.write("form.tool", json!("find-replace"));
-        assert!(l.trigger("tool", "onChange"));
-        assert_eq!(l.client.attr("f0", "visible"), Some(json!(true)));
-        assert_eq!(l.client.attr("f0", "label"), Some(json!("Find")));
-        assert_eq!(l.client.attr("f2", "visible"), Some(json!(false)));
-        assert_eq!(l.client.attr("slider", "visible"), Some(json!(false)));
-        l.write("form.text", json!("a cat, a Cat"));
-        l.write("form.f0", json!("cat"));
-        l.write("form.f1", json!("dog"));
-        l.write("form.c0", json!(true));
-        assert!(l.trigger("c0", "onChange"));
-        assert_eq!(l.client.attr("output", "text"), Some(json!("a dog, a dog")));
-        assert_eq!(l.client.attr("info", "text"), Some(json!("2 replaced")));
-        // The result can become the input.
-        assert!(l.trigger("reuse", "onPress"));
-        assert_eq!(l.client.value("form.text"), Some(&json!("a dog, a dog")));
+        pick(&mut l, "text", "find-replace");
+        assert_eq!(l.client.attr("find-replace-find", "label"), Some(json!("Find")));
+        assert_eq!(l.client.attr("find-replace-find", "bind"), Some(json!("args.find_replace.find")));
+        l.write("text", json!("a cat, a Cat"));
+        l.write("args.find_replace.find", json!("cat"));
+        l.write("args.find_replace.replace_with", json!("dog"));
+        l.write("args.find_replace.ignore_case", json!(true));
+        assert!(l.trigger("run", "onPress"));
+        assert_eq!(l.client.attr("result-code", "text"), Some(json!("a dog, a dog")));
+        assert_eq!(l.client.attr("result-note", "text"), Some(json!("2 replaced")));
+        // The result can become the input, without asking the server.
+        assert!(!l.trigger("reuse", "onPress"));
+        assert_eq!(l.client.value("text"), Some(&json!("a dog, a dog")));
+        // Another tool and back: the options are as the user left them.
+        pick(&mut l, "text", "case");
+        assert_eq!(l.client.attr("find-replace-find", "label"), None);
+        pick(&mut l, "text", "find-replace");
+        assert_eq!(l.client.value("args.find_replace.find"), Some(&json!("cat")));
+        assert!(l.client.attr("result-pending", "text").is_some());
         assert!(l.client.take_diagnostics().is_empty());
     }
 
@@ -767,19 +779,17 @@ mod tests {
     fn empty_text_is_rejected_on_run() {
         let mut l = Loopback::<TextUtils>::new();
         assert!(l.trigger("run", "onPress"));
-        assert_eq!(l.client.attr("feedback", "text"), Some(json!("Paste some text first.")));
+        assert_eq!(l.client.attr("result-error", "text"), Some(json!("Paste some text first.")));
         assert!(l.client.take_diagnostics().is_empty());
     }
 
     #[test]
-    fn form_tools_run_at_once() {
+    fn form_tools_show_values() {
         let mut l = Loopback::<TextUtils>::new();
-        l.write("form.category", json!("health"));
-        assert!(l.trigger("category", "onChange"));
-        l.write("form.tool", json!("bmi"));
-        assert!(l.trigger("tool", "onChange"));
-        assert_eq!(l.client.attr("input", "visible"), Some(json!(false)));
-        assert!(l.client.attr("output", "text").unwrap().as_str().unwrap().contains("BMI"));
+        pick(&mut l, "health", "bmi");
+        assert_eq!(l.client.attr("source", "type"), None);
+        assert!(l.trigger("run", "onPress"));
+        assert!(l.client.attr("result-facts-bmi-value", "text").is_some());
         assert!(l.client.take_diagnostics().is_empty());
     }
 
@@ -792,5 +802,48 @@ mod tests {
         assert_eq!(fmt(1234.5678, 2), "1,234.57");
         assert_eq!(fmt(-0.5, 2), "-0.5");
         assert_eq!(fmt(3.0, 2), "3");
+    }
+}
+
+#[cfg(test)]
+mod dump {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn dump() {
+        let mut rng = Rng(7);
+        let sample = "Hello World, 42 and 3.5 at 2024-01-02. <b>bold</b> {\"a\": 1}";
+        for (_, _, tools) in CATEGORIES {
+            for t in *tools {
+                let opts = t.options();
+                let fields: Vec<&str> = opts.iter().filter_map(|o| match o.kind { Kind::Field(v) => Some(v), _ => None }).collect();
+                let choices: Vec<&str> = opts.iter().filter_map(|o| match o.kind { Kind::Select(m) => m.first().map(|x| x.0), _ => None }).collect();
+                let mut o = Opts::new("", &mut rng).with(&fields, &choices, &[]);
+                o.labels = t.fields;
+                o.number = t.slider.map_or(0, |s| s.3 as usize);
+                o.now_ms = 1_700_000_000_000.0;
+                let kinds = match (t.run)(if t.text.is_empty() { "" } else { sample }, &mut o) {
+                    Ok(out) => out
+                        .blocks
+                        .iter()
+                        .map(|b| match b {
+                            output::Block::Facts(r) => format!("facts{}", r.len()),
+                            output::Block::Table { rows, .. } => format!("table{}", rows.len()),
+                            output::Block::Code(_) => "code".into(),
+                            output::Block::Text(_) => "text".into(),
+                            output::Block::List(i) => format!("list{}", i.len()),
+                            output::Block::Verdict { ok, .. } => format!("verdict-{ok}"),
+                            output::Block::Image { .. } => "image".into(),
+                            output::Block::Note(_) => "note".into(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    Err(e) => format!("ERR {e}"),
+                };
+                let names: Vec<String> = opts.iter().map(|o| o.name.clone()).collect();
+                println!("{} | {} | {}", t.id, kinds, names.join(" "));
+            }
+        }
     }
 }

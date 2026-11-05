@@ -30,6 +30,7 @@ mod tab;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use gtk4 as gtk;
+use hyperb_core::address;
 use hyperb_core::identity::Identity;
 use hyperb_core::library::Entry;
 use library::Library;
@@ -79,6 +80,7 @@ fn main() -> glib::ExitCode {
             .skip(1)
             .map(|a| a.to_string_lossy().into_owned())
             .filter(|a| !a.is_empty())
+            .map(|a| address::absolute_file(&a))
             .collect();
         if !urls.is_empty() {
             // Launching an app that is open already shows it again.

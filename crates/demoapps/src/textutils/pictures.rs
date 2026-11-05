@@ -1,6 +1,7 @@
 //! Colors, CSS generators, codes, fractals and placeholder images: the
 //! tools that answer with a picture.
 
+use super::Output;
 use super::{Opts, Tool, fmt, table, tool};
 use crate::img::{self, Canvas, Rgb};
 
@@ -186,20 +187,18 @@ fn describe(c: Rgb) -> Vec<(&'static str, String)> {
     ]
 }
 
-fn color_convert(_: &str, o: &mut Opts) -> Result<String, String> {
+fn color_convert(_: &str, o: &mut Opts) -> Result<Output, String> {
     let c = parse_color(o.field(0))?;
-    o.image = Some(swatches(&[c]));
-    Ok(table(&describe(c)))
+    Ok(Output::default().image(swatches(&[c]), hex(c)).then(table(&describe(c))))
 }
 
-fn cmyk_rgb(_: &str, o: &mut Opts) -> Result<String, String> {
+fn cmyk_rgb(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v: Vec<f64> = (0..4).map(|i| o.num(i)).collect::<Result<_, _>>()?;
     let c = parse_color(&format!("cmyk({}, {}, {}, {})", v[0], v[1], v[2], v[3]))?;
-    o.image = Some(swatches(&[c]));
-    Ok(table(&describe(c)))
+    Ok(Output::default().image(swatches(&[c]), hex(c)).then(table(&describe(c))))
 }
 
-fn harmonies(_: &str, o: &mut Opts) -> Result<String, String> {
+fn harmonies(_: &str, o: &mut Opts) -> Result<Output, String> {
     let base = parse_color(o.field(0))?;
     let (h, s, l) = rgb_to_hsl(base);
     let colors: Vec<Rgb> = match o.mode {
@@ -212,27 +211,29 @@ fn harmonies(_: &str, o: &mut Opts) -> Result<String, String> {
         "tints" => (0..6).map(|i| hsl_to_rgb(h, s, l + (1.0 - l) * i as f64 / 6.0)).collect(),
         _ => [0.0, 180.0].iter().map(|d| hsl_to_rgb(h + d, s, l)).collect(),
     };
-    o.image = Some(swatches(&colors));
-    Ok(colors.iter().map(|c| format!("{}  rgb({}, {}, {})", hex(*c), c[0], c[1], c[2])).collect::<Vec<_>>().join("\n"))
+    let names: Vec<String> = colors.iter().map(|c| hex(*c)).collect();
+    Ok(Output::default()
+        .image(swatches(&colors), names.join(", "))
+        .table(&["Color", "RGB"], colors.iter().map(|c| vec![hex(*c), format!("rgb({}, {}, {})", c[0], c[1], c[2])])))
 }
 
-fn mix(_: &str, o: &mut Opts) -> Result<String, String> {
+fn mix(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = (parse_color(o.field(0))?, parse_color(o.field(1))?);
     let t = o.number as f64 / 100.0;
     let screen = [0, 1, 2].map(|i| (a[i] as f64 * (1.0 - t) + b[i] as f64 * t).round() as u8);
     // Paint mixes subtract light: mix the absorbances.
     let paint = [0, 1, 2].map(|i| gamma((linear(a[i]).max(1e-4).ln() * (1.0 - t) + linear(b[i]).max(1e-4).ln() * t).exp()));
     let lin = [0, 1, 2].map(|i| gamma(linear(a[i]) * (1.0 - t) + linear(b[i]) * t));
-    o.image = Some(swatches(&[a, paint, lin, screen, b]));
-    Ok(table(&[
+    let shown = [a, paint, lin, screen, b];
+    Ok(Output::default().image(swatches(&shown), shown.map(hex).join(", ")).then(table(&[
         ("Paint (subtractive)", hex(paint)),
         ("Light (linear)", hex(lin)),
         ("Average of the values", hex(screen)),
         ("", format!("{}% of the second color; the swatches show A, the three mixes, and B.", o.number)),
-    ]))
+    ])))
 }
 
-fn name_lookup(_: &str, o: &mut Opts) -> Result<String, String> {
+fn name_lookup(_: &str, o: &mut Opts) -> Result<Output, String> {
     let c = parse_color(o.field(0))?;
     let l = lab(c);
     let mut ranked: Vec<(&str, u32, f64)> = NAMED
@@ -243,11 +244,13 @@ fn name_lookup(_: &str, o: &mut Opts) -> Result<String, String> {
         })
         .collect();
     ranked.sort_by(|a, b| a.2.total_cmp(&b.2));
-    o.image = Some(swatches(&std::iter::once(c).chain(ranked.iter().take(4).map(|r| rgb_of(r.1))).collect::<Vec<_>>()));
-    Ok(ranked.iter().take(5).map(|(n, v, d)| format!("{n:<22} {}  ΔE {d:.1}", hex(rgb_of(*v)))).collect::<Vec<_>>().join("\n"))
+    let shown: Vec<Rgb> = std::iter::once(c).chain(ranked.iter().take(4).map(|r| rgb_of(r.1))).collect();
+    Ok(Output::default()
+        .image(swatches(&shown), format!("{} and its nearest named colors", hex(c)))
+        .table(&["Name", "Color", "Distance"], ranked.iter().take(5).map(|(n, v, d)| vec![(*n).to_owned(), hex(rgb_of(*v)), format!("ΔE {d:.1}")])))
 }
 
-fn contrast(_: &str, o: &mut Opts) -> Result<String, String> {
+fn contrast(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (fg, bg) = (parse_color(o.field(0))?, parse_color(o.field(1))?);
     let (l1, l2) = (luminance(fg), luminance(bg));
     let ratio = (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05);
@@ -255,18 +258,17 @@ fn contrast(_: &str, o: &mut Opts) -> Result<String, String> {
     let mut c = Canvas::new(360, 120, bg);
     c.text(20, 22, 6, "Aa 123", fg);
     c.text(20, 86, 2, "THE QUICK BROWN FOX", fg);
-    o.image = Some(c.png());
-    Ok(table(&[
+    Ok(Output::default().image(c.png(), format!("{} text on {}", hex(fg), hex(bg))).then(table(&[
         ("Contrast ratio", format!("{}:1", fmt(ratio, 2))),
         ("AA, normal text (4.5)", pass(4.5).into()),
         ("AA, large text (3)", pass(3.0).into()),
         ("AAA, normal text (7)", pass(7.0).into()),
         ("AAA, large text (4.5)", pass(4.5).into()),
         ("Interface parts (3)", pass(3.0).into()),
-    ]))
+    ])))
 }
 
-fn blindness(_: &str, o: &mut Opts) -> Result<String, String> {
+fn blindness(_: &str, o: &mut Opts) -> Result<Output, String> {
     let c = parse_color(o.field(0))?;
     let lin = c.map(linear);
     let apply = |m: [[f64; 3]; 3]| -> Rgb { [0, 1, 2].map(|i| gamma(m[i][0] * lin[0] + m[i][1] * lin[1] + m[i][2] * lin[2])) };
@@ -286,11 +288,10 @@ fn blindness(_: &str, o: &mut Opts) -> Result<String, String> {
     let grey = gamma(luminance(c));
     colors.push([grey; 3]);
     rows.push(("Achromatopsia (no color)", hex([grey; 3])));
-    o.image = Some(swatches(&colors));
-    Ok(table(&rows))
+    Ok(Output::default().image(swatches(&colors), format!("{} as seen with each kind of color blindness", hex(c))).then(table(&rows)))
 }
 
-fn gradient(_: &str, o: &mut Opts) -> Result<String, String> {
+fn gradient(_: &str, o: &mut Opts) -> Result<Output, String> {
     let stops: Vec<Rgb> = o.field(0).split([',', ' ']).filter(|s| !s.is_empty()).map(parse_color).collect::<Result<_, _>>()?;
     if stops.len() < 2 {
         return Err("Write two or more colors, separated by commas.".into());
@@ -323,11 +324,10 @@ fn gradient(_: &str, o: &mut Opts) -> Result<String, String> {
             c.put(x, y, col);
         }
     }
-    o.image = Some(c.png());
-    Ok(css)
+    Ok(Output::default().image(c.png(), names.join(" to ")).code(css))
 }
 
-fn box_shadow(_: &str, o: &mut Opts) -> Result<String, String> {
+fn box_shadow(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (x, y, blur, spread) = (o.num(0)?, o.num(1)?, o.num(2)?, o.opt_num(3)?.unwrap_or(0.0));
     let color = parse_color(o.field(4))?;
     let alpha = o.number as f64 / 100.0;
@@ -335,28 +335,28 @@ fn box_shadow(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(format!(
         "box-shadow: {inset}{}px {}px {}px {}px rgba({}, {}, {}, {});",
         fmt(x, 1), fmt(y, 1), fmt(blur, 1), fmt(spread, 1), color[0], color[1], color[2], fmt(alpha, 2)
-    ))
+    ).into())
 }
 
-fn border_radius(_: &str, o: &mut Opts) -> Result<String, String> {
+fn border_radius(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v: Vec<f64> = (0..4).map(|i| o.opt_num(i).map(|v| v.unwrap_or(0.0))).collect::<Result<_, _>>()?;
     let unit = o.mode;
     let all_same = v.iter().all(|x| *x == v[0]);
     let s = |x: f64| format!("{}{unit}", fmt(x, 2));
-    Ok(if all_same { format!("border-radius: {};", s(v[0])) } else { format!("border-radius: {} {} {} {};", s(v[0]), s(v[1]), s(v[2]), s(v[3])) })
+    Ok(if all_same { format!("border-radius: {};", s(v[0])) } else { format!("border-radius: {} {} {} {};", s(v[0]), s(v[1]), s(v[2]), s(v[3])) }.into())
 }
 
-fn glass(_: &str, o: &mut Opts) -> Result<String, String> {
+fn glass(_: &str, o: &mut Opts) -> Result<Output, String> {
     let c = parse_color(o.field(0))?;
     let blur = o.opt_num(1)?.unwrap_or(10.0);
     let alpha = o.number as f64 / 100.0;
     Ok(format!(
         "background: rgba({}, {}, {}, {});\nbackdrop-filter: blur({}px) saturate(180%);\n-webkit-backdrop-filter: blur({}px) saturate(180%);\nborder: 1px solid rgba(255, 255, 255, 0.25);\nborder-radius: 16px;\nbox-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);",
         c[0], c[1], c[2], fmt(alpha, 2), fmt(blur, 0), fmt(blur, 0)
-    ))
+    ).into())
 }
 
-fn transform(_: &str, o: &mut Opts) -> Result<String, String> {
+fn transform(_: &str, o: &mut Opts) -> Result<Output, String> {
     let parts = [
         (o.opt_num(0)?, "rotate", "deg", 0.0),
         (o.opt_num(1)?, "scale", "", 1.0),
@@ -366,10 +366,10 @@ fn transform(_: &str, o: &mut Opts) -> Result<String, String> {
         (o.opt_num(5)?, "skewY", "deg", 0.0),
     ];
     let t: Vec<String> = parts.iter().filter_map(|(v, f, u, idle)| v.filter(|x| x != idle).map(|x| format!("{f}({}{u})", fmt(x, 3)))).collect();
-    Ok(if t.is_empty() { "transform: none;".into() } else { format!("transform: {};", t.join(" ")) })
+    Ok(if t.is_empty() { "transform: none;".into() } else { format!("transform: {};", t.join(" ")) }.into())
 }
 
-fn aspect_ratio(_: &str, o: &mut Opts) -> Result<String, String> {
+fn aspect_ratio(_: &str, o: &mut Opts) -> Result<Output, String> {
     let w = o.positive(0)?;
     let h = o.positive(1)?;
     let g = super::math::gcd(w.round() as u128, h.round() as u128).max(1) as f64;
@@ -383,7 +383,7 @@ fn aspect_ratio(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn font_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn font_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let base = o.opt_num(1)?.unwrap_or(16.0);
     let px = match o.mode {
@@ -424,13 +424,12 @@ fn qr_png(data: &str, scale: usize) -> Result<(Vec<u8>, usize), String> {
     Ok((img::png_bilevel(side as u32, side as u32, &white), modules))
 }
 
-fn qr(text: &str, o: &mut Opts) -> Result<String, String> {
+fn qr(text: &str, o: &mut Opts) -> Result<Output, String> {
     let (png, modules) = qr_png(text, o.number.max(2))?;
-    o.image = Some(png);
-    Ok(format!("{modules}×{modules} modules for {} bytes", text.len()))
+    Ok(Output::default().image(png, format!("A QR code for: {text}")).note(format!("{modules}×{modules} modules for {} bytes", text.len())))
 }
 
-fn wifi_qr(_: &str, o: &mut Opts) -> Result<String, String> {
+fn wifi_qr(_: &str, o: &mut Opts) -> Result<Output, String> {
     let esc = |s: &str| s.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace(':', "\\:").replace('"', "\\\"");
     let ssid = o.field(0);
     if ssid.is_empty() {
@@ -438,8 +437,10 @@ fn wifi_qr(_: &str, o: &mut Opts) -> Result<String, String> {
     }
     let data = format!("WIFI:T:{};S:{};P:{};H:{};;", o.mode, esc(ssid), esc(o.field(1)), o.flag);
     let (png, _) = qr_png(&data, 8)?;
-    o.image = Some(png);
-    Ok(format!("Scan with a phone camera to join “{ssid}”.\n\n{data}"))
+    Ok(Output::default()
+        .image(png, format!("A QR code to join the network “{ssid}”"))
+        .note(format!("Scan with a phone camera to join “{ssid}”."))
+        .code(data))
 }
 
 const CODE128: [&str; 107] = [
@@ -499,7 +500,7 @@ fn ean13(s: &str) -> Result<(Vec<bool>, String), String> {
     Ok((bits.chars().map(|c| c == '1').collect(), d.iter().map(|x| x.to_string()).collect()))
 }
 
-fn barcode(_: &str, o: &mut Opts) -> Result<String, String> {
+fn barcode(_: &str, o: &mut Opts) -> Result<Output, String> {
     let data = o.field(0);
     let (modules, label): (Vec<bool>, String) = if o.mode == "ean13" {
         ean13(data)?
@@ -527,8 +528,7 @@ fn barcode(_: &str, o: &mut Opts) -> Result<String, String> {
     if tw < width as i32 {
         c.text((width as i32 - tw) / 2, 108, 2, &label, [0, 0, 0]);
     }
-    o.image = Some(c.png());
-    Ok(format!("{} modules", modules.len()))
+    Ok(Output::default().image(c.png(), format!("A barcode for {label}")).note(format!("{} modules", modules.len())))
 }
 
 // Fractals
@@ -611,7 +611,7 @@ fn draw(paths: &[Vec<(f64, f64)>], color: Rgb) -> Vec<u8> {
     c.png()
 }
 
-fn fractal(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fractal(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let color = parse_color(o.field(0)).unwrap_or([30, 60, 140]);
     let paths = match o.mode {
@@ -634,11 +634,11 @@ fn fractal(_: &str, o: &mut Opts) -> Result<String, String> {
         }
         _ => lsystem("A", &[('A', "B-A-B"), ('B', "A+B+A")], 60.0, n.min(9), 0.0),
     };
-    o.image = Some(draw(&paths, color));
-    Ok(format!("{} segments", paths.iter().map(|p| p.len().saturating_sub(1)).sum::<usize>()))
+    let segments = paths.iter().map(|p| p.len().saturating_sub(1)).sum::<usize>();
+    Ok(Output::default().image(draw(&paths, color), format!("A {} fractal", o.mode)).note(format!("{segments} segments")))
 }
 
-fn placeholder(_: &str, o: &mut Opts) -> Result<String, String> {
+fn placeholder(_: &str, o: &mut Opts) -> Result<Output, String> {
     let w = o.positive(0)?.round() as i32;
     let h = o.positive(1)?.round() as i32;
     if w > 1600 || h > 1600 {
@@ -653,8 +653,7 @@ fn placeholder(_: &str, o: &mut Opts) -> Result<String, String> {
         scale -= 1;
     }
     c.text((w - img::text_width(&label, scale)) / 2, (h - 7 * scale) / 2, scale, &label, fg);
-    o.image = Some(c.png());
-    Ok(format!("{w}×{h} PNG"))
+    Ok(Output::default().image(c.png(), format!("A {w}×{h} placeholder reading “{label}”")).note(format!("{w}×{h} PNG")))
 }
 
 pub const COLOR: &[Tool] = &[

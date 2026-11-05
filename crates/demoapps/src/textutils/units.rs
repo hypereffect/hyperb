@@ -1,24 +1,25 @@
 //! Unit converters. A unit's menu value is its size in the quantity's base
 //! unit, so the menus are the conversion tables.
 
+use super::Output;
 use super::{Opts, Tool, fmt, table, tool};
 
 /// Converts with a table whose values are factors to a base unit.
-fn convert(units: super::Menu, o: &mut Opts) -> Result<String, String> {
+fn convert(units: super::Menu, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let factor = |id: &str| id.parse::<f64>().unwrap_or(1.0);
     let base = v * factor(o.mode);
     let label = |id: &str| units.iter().find(|u| u.0 == id).map_or("", |u| u.1);
     let digits = o.number.max(1);
-    let mut rows: Vec<(&str, String)> = vec![("", format!("{} {} = {} {}", fmt(v, 12), label(o.mode), fmt(base / factor(o.choice(1)), digits), label(o.choice(1)))), ("", String::new())];
-    rows.extend(units.iter().map(|(id, l)| (*l, fmt(base / factor(id), digits))));
-    Ok(table(&rows))
+    let rows: Vec<(&str, String)> = units.iter().map(|(id, l)| (*l, fmt(base / factor(id), digits))).collect();
+    let from = format!("{} {}", fmt(v, 12), label(o.mode));
+    Ok(table(&[(&from, format!("{} {}", fmt(base / factor(o.choice(1)), digits), label(o.choice(1))))]).note("In every unit").facts(&rows))
 }
 
 macro_rules! units {
     ($($fn:ident, $table:ident, $id:literal, $name:literal, $about:literal, $value:literal;)*) => {
         $(
-            fn $fn(_: &str, o: &mut Opts) -> Result<String, String> {
+            fn $fn(_: &str, o: &mut Opts) -> Result<Output, String> {
                 convert($table, o)
             }
         )*
@@ -144,7 +145,7 @@ units! {
     astronomical, ASTRONOMICAL, "astronomical", "Astronomical distances", "Astronomical units, light years and parsecs.", "1";
 }
 
-fn temperature(_: &str, o: &mut Opts) -> Result<String, String> {
+fn temperature(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.num(0)?;
     let k = match o.mode {
         "f" => (v - 32.0) / 1.8 + 273.15,
@@ -163,7 +164,7 @@ fn temperature(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn fuel_economy(_: &str, o: &mut Opts) -> Result<String, String> {
+fn fuel_economy(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     // In kilometres per litre.
     let kpl = match o.mode {
@@ -180,7 +181,7 @@ fn fuel_economy(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn shoe_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn shoe_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     // From the foot length in cm: the last is 1.5 cm longer; EU sizes are
     // Paris points (2/3 cm) of the last; UK sizes barleycorns (1/3 in).
@@ -204,7 +205,7 @@ fn shoe_size(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn ring_size(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ring_size(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v = o.positive(0)?;
     let d = match o.mode {
         "us" => 11.63 + 0.8128 * v,
@@ -250,9 +251,9 @@ mod tests {
         let mut rng = Rng(1);
         let mut o = Opts::new("1609.344", &mut rng).with(&["1"], &["1609.344", "1000"], &[]);
         o.number = 6;
-        assert!(length("", &mut o).unwrap().starts_with("1 Miles = 1.609344 Kilometres"));
+        assert!(length("", &mut o).unwrap().plain().starts_with("1 Miles: 1.609344 Kilometres"));
         let mut o = Opts::new("f", &mut rng).with(&["212"], &["f"], &[]);
-        assert!(temperature("", &mut o).unwrap().contains("100 °C"));
+        assert!(temperature("", &mut o).unwrap().plain().contains("100 °C"));
         // Menu values parse as factors, and are unique.
         for t in UNITS {
             for (_, menu) in t.selects {

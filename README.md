@@ -18,8 +18,8 @@ The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereff
 * [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
 * [`textutils`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm): a pocket knife of small tools for text, data, numbers and more
 * [`pomodoro`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm): a focus timer
-* [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): QR codes
-* [`chart`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/chart.wasm): charts
+* [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): generate QR codes
+* [`chart`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/chart.wasm): generate charts from pasted data
 * [`billsplit`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm): split a bill
 * [`finance`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/finance.wasm): an RPN financial calculator
 * [`grammar`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm): a grammar checker, on Harper

@@ -1,6 +1,7 @@
 //! Dates, calendars and time.
 
-use super::{Opts, Tool, fmt, table, tool};
+use super::Output;
+use super::{Opts, Tool, fmt, grid, table, tool};
 
 /// Days since 1970-01-01 of a proleptic Gregorian date.
 pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
@@ -219,7 +220,7 @@ fn plural(n: i64, word: &str) -> String {
     format!("{n} {word}{}", if n == 1 { "" } else { "s" })
 }
 
-fn age(_: &str, o: &mut Opts) -> Result<String, String> {
+fn age(_: &str, o: &mut Opts) -> Result<Output, String> {
     let born = o.date(0)?;
     let at = o.date(1)?;
     if at < born {
@@ -253,7 +254,7 @@ fn business_days_between(a: i64, b: i64, holidays: &[i64], saturday: bool) -> i6
         .count() as i64
 }
 
-fn date_diff(_: &str, o: &mut Opts) -> Result<String, String> {
+fn date_diff(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = o.date(0)?;
     let mut b = o.date(1)?;
     if o.flag {
@@ -281,7 +282,7 @@ fn add_months(days: i64, months: i64) -> i64 {
     days_from_civil(ny, nm, d.min(month_days(ny, nm)))
 }
 
-fn date_add(_: &str, o: &mut Opts) -> Result<String, String> {
+fn date_add(_: &str, o: &mut Opts) -> Result<Output, String> {
     let start = o.date(0)?;
     let n = o.int(1)? * if o.choice(1) == "subtract" { -1 } else { 1 };
     let result = match o.mode {
@@ -304,7 +305,7 @@ fn date_add(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&[("Date", iso(result)), ("", format_unix(result as f64 * 86400.0))]))
 }
 
-fn business_days(_: &str, o: &mut Opts) -> Result<String, String> {
+fn business_days(_: &str, o: &mut Opts) -> Result<Output, String> {
     let a = o.date(0)?;
     let mut b = o.date(1)?;
     if o.flag {
@@ -333,7 +334,7 @@ fn iso_week(days: i64) -> (i64, i64) {
     (y, (thursday - days_from_civil(y, 1, 1)) / 7 + 1)
 }
 
-fn day_of_week(_: &str, o: &mut Opts) -> Result<String, String> {
+fn day_of_week(_: &str, o: &mut Opts) -> Result<Output, String> {
     let d = o.date(0)?;
     let (y, m, _) = civil_from_days(d);
     let (wy, w) = iso_week(d);
@@ -388,7 +389,7 @@ fn strftime(secs: f64, pattern: &str) -> String {
     out
 }
 
-fn date_format(_: &str, o: &mut Opts) -> Result<String, String> {
+fn date_format(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = o.datetime(0)?;
     let mut rows = vec![
         ("ISO 8601", strftime(t, "%Y-%m-%dT%H:%M:%SZ")),
@@ -409,7 +410,7 @@ fn date_format(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn calendar(_: &str, o: &mut Opts) -> Result<String, String> {
+fn calendar(_: &str, o: &mut Opts) -> Result<Output, String> {
     let today = (o.now()? / 86400000.0).floor() as i64;
     let (ty, tm, _) = civil_from_days(today);
     let y = o.opt_num(0)?.map_or(ty, |v| v as i64);
@@ -442,10 +443,10 @@ fn calendar(_: &str, o: &mut Opts) -> Result<String, String> {
         }
         out.push(String::new());
     }
-    Ok(out.join("\n").trim_end().to_owned())
+    Ok(out.join("\n").trim_end().to_owned().into())
 }
 
-fn countdown(_: &str, o: &mut Opts) -> Result<String, String> {
+fn countdown(_: &str, o: &mut Opts) -> Result<Output, String> {
     let target = o.datetime(0)?;
     let now = o.now()? / 1000.0;
     let left = target - now;
@@ -460,7 +461,7 @@ fn countdown(_: &str, o: &mut Opts) -> Result<String, String> {
     ]))
 }
 
-fn unix(_: &str, o: &mut Opts) -> Result<String, String> {
+fn unix(_: &str, o: &mut Opts) -> Result<Output, String> {
     let raw = o.field(0);
     let now = o.now()? / 1000.0;
     if let Ok(n) = raw.parse::<f64>() {
@@ -490,7 +491,7 @@ fn unix(_: &str, o: &mut Opts) -> Result<String, String> {
 const ANIMALS: [&str; 12] = ["Rat", "Ox", "Tiger", "Rabbit", "Dragon", "Snake", "Horse", "Goat", "Monkey", "Rooster", "Dog", "Pig"];
 const ELEMENTS: [&str; 5] = ["Wood", "Fire", "Earth", "Metal", "Water"];
 
-fn chinese_zodiac(_: &str, o: &mut Opts) -> Result<String, String> {
+fn chinese_zodiac(_: &str, o: &mut Opts) -> Result<Output, String> {
     let y = o.int(0)?;
     let i = (y - 4).rem_euclid(60);
     Ok(table(&[
@@ -511,7 +512,7 @@ pub fn zodiac_sign(m: i64, d: i64) -> &'static str {
     if d <= last { name } else { SIGNS[m as usize % 12].0 }
 }
 
-fn zodiac(_: &str, o: &mut Opts) -> Result<String, String> {
+fn zodiac(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (_, m, d) = civil_from_days(o.date(0)?);
     Ok(zodiac_sign(m, d).into())
 }
@@ -526,7 +527,7 @@ fn julian_from_days(days: i64) -> (i64, i64, i64) {
     (d - 4800 + (m + 3) / 10 - 1 + 1, m + 3 - 12 * (m / 10), e - (153 * m + 2) / 5 + 1)
 }
 
-fn julian(_: &str, o: &mut Opts) -> Result<String, String> {
+fn julian(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = o.datetime(0)?;
     let jd = t / 86400.0 + 2440587.5;
     let (y, m, d) = julian_from_days((t / 86400.0).floor() as i64);
@@ -555,16 +556,17 @@ fn to_islamic(days: i64) -> (i64, i64, i64) {
     (y, m, days - from_islamic(y, m, 1) + 1)
 }
 
-fn islamic(_: &str, o: &mut Opts) -> Result<String, String> {
+fn islamic(_: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "to-gregorian" {
         let (y, m, d) = (o.int(1)?, o.int(2)?, o.int(3)?);
         if !(1..=12).contains(&m) || !(1..=30).contains(&d) {
             return Err("An Islamic month goes from 1 to 12, a day from 1 to 30.".into());
         }
-        return Ok(format_unix(from_islamic(y, m, d) as f64 * 86400.0));
+        return Ok(table(&[("Gregorian date", format_unix(from_islamic(y, m, d) as f64 * 86400.0))]));
     }
     let (y, m, d) = to_islamic(o.date(0)?);
-    Ok(format!("{d} {} {y} AH\n\nThe tabular calendar; the observed one may differ by a day or two.", ISLAMIC_MONTHS[m as usize - 1]))
+    Ok(table(&[("Islamic date", format!("{d} {} {y} AH", ISLAMIC_MONTHS[m as usize - 1]))])
+        .note("The tabular calendar; the observed one may differ by a day or two."))
 }
 
 // The Hebrew calendar, after Reingold and Dershowitz, in days since 1970.
@@ -625,10 +627,10 @@ fn to_hebrew(days: i64) -> (i64, i64, i64) {
     (y, m, days - from_hebrew(y, m, 1) + 1)
 }
 
-fn hebrew(_: &str, o: &mut Opts) -> Result<String, String> {
+fn hebrew(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (y, m, d) = to_hebrew(o.date(0)?);
     let name = if m == 12 && hebrew_leap(y) { "Adar I" } else { HEBREW_MONTHS[m as usize - 1] };
-    Ok(format!("{d} {name} {y}\n\nHebrew days begin at sunset the evening before."))
+    Ok(table(&[("Hebrew date", format!("{d} {name} {y}"))]).note("Hebrew days begin at sunset the evening before."))
 }
 
 /// The moon's age in days, and the fraction lit, at a time.
@@ -640,7 +642,7 @@ pub fn moon(secs: f64) -> (f64, f64) {
     (age, lit)
 }
 
-fn moon_phase(_: &str, o: &mut Opts) -> Result<String, String> {
+fn moon_phase(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = o.datetime(0)?;
     let (age, lit) = moon(t);
     let names = ["New moon 🌑", "Waxing crescent 🌒", "First quarter 🌓", "Waxing gibbous 🌔", "Full moon 🌕", "Waning gibbous 🌖", "Last quarter 🌗", "Waning crescent 🌘"];
@@ -684,7 +686,7 @@ pub fn clock(hours: f64) -> String {
     format!("{:02}:{:02}", m / 60, m % 60)
 }
 
-fn sunrise(_: &str, o: &mut Opts) -> Result<String, String> {
+fn sunrise(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (lat, lon) = (o.num(0)?, o.num(1)?);
     if lat.abs() > 90.0 || lon.abs() > 180.0 {
         return Err("Latitude goes from -90 to 90, longitude from -180 to 180.".into());
@@ -715,7 +717,7 @@ fn sunrise(_: &str, o: &mut Opts) -> Result<String, String> {
     Ok(table(&rows))
 }
 
-fn ics(_: &str, o: &mut Opts) -> Result<String, String> {
+fn ics(_: &str, o: &mut Opts) -> Result<Output, String> {
     let start = o.datetime(1)?;
     let end = match o.field(2) {
         "" => start + 3600.0,
@@ -748,10 +750,10 @@ fn ics(_: &str, o: &mut Opts) -> Result<String, String> {
         lines.push(format!("RRULE:FREQ={}", o.mode.to_uppercase()));
     }
     lines.extend(["END:VEVENT".into(), "END:VCALENDAR".into()]);
-    Ok(lines.join("\r\n").replace("\r\n", "\n"))
+    Ok(lines.join("\n").into())
 }
 
-fn ics_view(text: &str, _: &mut Opts) -> Result<String, String> {
+fn ics_view(text: &str, _: &mut Opts) -> Result<Output, String> {
     // Unfold continuation lines first.
     let unfolded = text.replace("\r\n", "\n").replace("\n ", "").replace("\n\t", "");
     let mut events = Vec::new();
@@ -789,19 +791,17 @@ fn ics_view(text: &str, _: &mut Opts) -> Result<String, String> {
         if t.len() >= 4 { format!("{date} {}:{}{}", &t[..2], &t[2..4], if t.ends_with('Z') { " UTC" } else { "" }) } else { date }
     };
     events.sort_by_key(|e| e.iter().find(|(k, _)| k == "DTSTART").map(|(_, v)| v.clone()));
-    let mut out = Vec::new();
-    for e in &events {
+    let rows = events.iter().map(|e| {
         let get = |k: &str| e.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str()).unwrap_or("");
-        out.push(format!("• {}", if get("SUMMARY").is_empty() { "(no title)" } else { get("SUMMARY") }));
-        out.push(format!("  {} → {}", when(get("DTSTART")), when(get("DTEND"))));
-        for (k, label) in [("LOCATION", "Where"), ("RRULE", "Repeats"), ("DESCRIPTION", "Notes")] {
-            if !get(k).is_empty() {
-                out.push(format!("  {label}: {}", get(k)));
-            }
-        }
-        out.push(String::new());
-    }
-    Ok(out.join("\n").trim_end().to_owned())
+        vec![
+            if get("SUMMARY").is_empty() { "(no title)".to_owned() } else { get("SUMMARY").to_owned() },
+            format!("{} → {}", when(get("DTSTART")), when(get("DTEND"))),
+            get("LOCATION").to_owned(),
+            get("RRULE").to_owned(),
+            get("DESCRIPTION").to_owned(),
+        ]
+    });
+    Ok(grid(&["Event", "When", "Where", "Repeats", "Notes"], rows))
 }
 
 /// A duration such as `1:30`, `1:30:15`, `2h 15m`, `90m` or `45s`, in seconds.
@@ -834,7 +834,7 @@ fn parse_duration(s: &str) -> Option<f64> {
     any.then_some(total)
 }
 
-fn time_calc(text: &str, o: &mut Opts) -> Result<String, String> {
+fn time_calc(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut total = 0.0;
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let (sign, l) = match l.strip_prefix('-') {

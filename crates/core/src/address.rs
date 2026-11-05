@@ -143,6 +143,47 @@ fn wasm(path: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// The absolute path of a local wasm file named on a command line, so that a
+/// shell-relative argument (`wasm-apps/qr.wasm`) opens the file it names.
+///
+/// Anything that is not a relative path to a wasm file, such as an address or
+/// a `~/` path (which [`normalize`] expands), is returned unchanged.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn absolute_file(input: &str) -> String {
+    if input.contains("://") {
+        return input.to_string();
+    }
+    let (path, fragment) = match input.split_once('#') {
+        Some((path, fragment)) => (path, Some(fragment)),
+        None => (input, None),
+    };
+    let file = std::path::Path::new(path);
+    let wasm = file
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("wasm"));
+    // A host and path (`example.com/app.wasm`) can look like a relative file,
+    // so only take it as one when it is bare, explicit (`./`, `../`), uses a
+    // backslash (never part of a URL), or names a file that exists.
+    let relative = file.is_relative()
+        && !path.starts_with("~/")
+        && (file.is_file()
+            || !path.contains('/')
+            || path.contains('\\')
+            || path.starts_with("./")
+            || path.starts_with("../"));
+    if !wasm || !relative {
+        return input.to_string();
+    }
+    let Ok(absolute) = std::path::absolute(file) else {
+        return input.to_string();
+    };
+    let absolute = absolute.to_string_lossy();
+    match fragment {
+        Some(fragment) => format!("{absolute}#{fragment}"),
+        None => absolute.into_owned(),
+    }
+}
+
 /// Checks that the fragment of `url` is a list of parameters
 /// (`SPEC.md`, section 1.8), and removes it if it is empty.
 fn canonical_fragment(url: &mut Url) -> Result<(), String> {
@@ -485,6 +526,34 @@ mod tests {
         assert!(normalize("hyperb:///opt/apps/").is_err());
         assert!(normalize("hyperb+http:///opt/a.wasm").is_err());
         assert_eq!(wasm_path(&normalize("localhost").unwrap()), None);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn command_line_file_paths() {
+        let cwd = std::env::current_dir().unwrap();
+        let absolute = |name: &str| cwd.join(name).to_string_lossy().into_owned();
+        assert_eq!(absolute_file("app.wasm"), absolute("app.wasm"));
+        assert_eq!(absolute_file("./app.wasm"), absolute("app.wasm"));
+        assert_eq!(absolute_file("../app.wasm"), absolute("../app.wasm"));
+        assert_eq!(
+            absolute_file("app.wasm#room=abc"),
+            format!("{}#room=abc", absolute("app.wasm"))
+        );
+        assert_eq!(absolute_file("/opt/apps/a.wasm"), "/opt/apps/a.wasm");
+        assert_eq!(absolute_file("~/apps/a.wasm"), "~/apps/a.wasm");
+        assert_eq!(
+            absolute_file("example.com/app.wasm"),
+            "example.com/app.wasm"
+        );
+        assert_eq!(
+            absolute_file("hyperb://example.com/app.wasm"),
+            "hyperb://example.com/app.wasm"
+        );
+        assert_eq!(
+            normalize(&absolute_file("app.wasm")).unwrap().scheme(),
+            "wasm"
+        );
     }
 
     #[test]
