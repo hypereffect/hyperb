@@ -4,25 +4,33 @@
 
 <h1 align="center">hyperb</h1>
 
-**hyperb** is a browser for small server-side applications. It opens `hyperb://` address that can be served via HTTP or iroh, or can be local or HTTP paths to WASM modules.
+# What is it, and why should I care?
 
-It comes as a GTK4 desktop app, a terminal app, an Android app and a [web app](https://hypereffect.github.io/hyperb/).
+**hyperb** is a browser for small server-driven applications that put content first. Most apps don't need flashy gradients, rounded corners, or piles of hard-to-maintain client-side JavaScript, and few are worth a dedicated native app. With **hyperb**, the server sends a basic layout of components along with their data. A visually neutral client renders it, collects the user's input, and sends it back to the server.
 
-Applications are servers that send `metadata`, `element` or `signal` messages, modifying the basic layout and the local state of components that are rendered by the **hyperb** browser. In the case of WASM modules, the role of server is assumed by the sandboxed WASM program that is being run locally.
+It's ideal for server admin dashboards, remote controls for hardware devices, interfacing with a sandboxed WASM module, and for simple form-driven apps where content matters more than appearance: a food ordering service, a club enrollment status page, or a shipping monitor.
 
-The [SPEC.md](SPEC.md) is a thin wrapper over [hypereffect](https://hypereffect.dev), which means there is no client-side computation and the style is homogenous and defined by the browser, the server merely provides the basic layout skeleton and the basic functionality of the elements, while the client's only means of communication with the server is by sending `action` messages.
+## How it works
+
+**hyperb** opens `hyperb://` addresses, which can be served over HTTP or iroh, or can point to (local or HTTP) paths to WASM modules.
+
+Applications are servers that send `metadata`, `element`, or `signal` messages. These modify the basic layout and local state of the components the browser renders. For WASM modules, the server role is played by the sandboxed program running locally.
+
+[SPEC.md](SPEC.md) is a thin layer on top of the [hypereffect](https://hypereffect.dev) protocol. There is no client-side computation, and the browser defines one homogeneous style. The server provides only the layout skeleton and the basic behavior of the elements, and the client's only way to communicate with the server is by sending `action` messages. In the case of WASM modules they are executed locally inside the **hyperb** app, but play the role of a server.
 
 # Demo apps
-The demo apps are wasm modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Open one of these addresses in any hyperb app, or follow a link to open it in the web app:
+The demo apps are WASM modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Some of these can actually be useful in practice, others are just demos with fake data. Either way because they don't interact with real servers, but only with a WASM sandbox, they don't represent the true powers of **hyperb**, only a small part of it.
 
-* [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
+The links below open the demo apps in the web renderer instance, but the same URLs can be open in the desktop, Android or TUI renderers.
+
+* [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): generate QR codes
 * [`textutils`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm): a pocket knife of small tools for text, data, numbers and more
 * [`pomodoro`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm): a focus timer
-* [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): generate QR codes
 * [`chart`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/chart.wasm): generate charts from pasted data
 * [`billsplit`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm): split a bill
 * [`finance`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/finance.wasm): an RPN financial calculator
-* [`grammar`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm): a grammar checker, on Harper
+* [`grammar`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm): a grammar checker, using Harper
+* [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
 * [`dbclient`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/dbclient.wasm): a SQL client over fake tables
 * [`minecraft`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/minecraft.wasm): a fake Minecraft server's admin console
 * [`saas`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/saas.wasm): a fake product's admin panel
@@ -121,25 +129,10 @@ just android
 Nothing to install: open <https://hypereffect.github.io/hyperb/>.
 </details>
 
-## Releases
-Each component is released separately by pushing a tag named `<component>-<N>-<M>` (for example `android-6-1`), which publishes a GitHub release with:
-* `desktop-*`: a `.flatpak`, `.deb`, `.rpm`, `.AppImage` and `.tar.gz` for Linux, a `.zip` and a `-setup-` installer for Windows, and a `.zip` with `hyperb.app` for Apple Silicon macOS. It also updates the Homebrew cask.
-* `android-*`: the APK
-* `tui-*`: the terminal app for Linux, macOS and Windows
-* `core-*`: publishes `hyperb-core` to [crates.io](https://crates.io/crates/hyperb-core); `core-<N>-<M>` becomes crate version `0.<N>.<M>`
+### Building locally
 
-The web renderer follows the same tag scheme, but `web-*` tags deploy it to GitHub Pages, together with the [demo apps](#demo-apps), instead of publishing a release.
-
-## Building from source
-### Dependencies
-* rustc
-* GTK 4.12+ (and its development headers) for the desktop app
-* [just](https://github.com/casey/just)
-* For Android: `cargo-ndk`, the Android SDK and NDK
-* For the web app: `cargo-leptos` and the `wasm32-unknown-unknown` target
-
-### Running
 `just` lists the recipes. The main ones:
+
 ```
 just desktop        # the GTK4 app
 just tui            # the terminal app
