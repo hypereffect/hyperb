@@ -336,6 +336,12 @@ pub fn remove_hashtags(text: &str, _: &mut Opts) -> Result<Output, String> {
     )))
 }
 
+pub fn remove_spaces(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(super::snippet(
+        text.chars().filter(|c| !c.is_whitespace()).collect(),
+    ))
+}
+
 pub fn remove_line_breaks(text: &str, o: &mut Opts) -> Result<Output, String> {
     let join = |t: &str| match o.mode {
         "nothing" => t.lines().map(str::trim).collect::<String>(),
@@ -1849,6 +1855,12 @@ pub const TEXT: &[Tool] = &[
         ],
     )]),
     tool(
+        "remove-spaces",
+        "Remove spaces",
+        "Deletes all whitespace.",
+        remove_spaces,
+    ),
+    tool(
         "lines-containing",
         "Remove lines containing",
         "Removes, or keeps only, the lines that contain some text.",
@@ -2245,6 +2257,7 @@ mod tests {
             "ab c\n\n2 hidden characters found"
         );
         assert_eq!(run(remove_extra_spaces, "  a   b ,c ", "text"), "a b,c");
+        assert_eq!(run(remove_spaces, " a b\tc\nd ", ""), "abcd");
         assert_eq!(
             run(sort_numbers, "10, -2, 3.5 and 1,000", "asc"),
             "-2\n3.5\n10\n1,000"
