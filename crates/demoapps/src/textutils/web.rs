@@ -9,37 +9,117 @@ use regex_lite::Regex;
 use std::net::{IpAddr, Ipv4Addr};
 
 const HTTP_STATUS: &[(u16, &str, &str)] = &[
-    (100, "Continue", "The request headers were received; send the body."),
-    (101, "Switching Protocols", "The server agrees to change protocols."),
+    (
+        100,
+        "Continue",
+        "The request headers were received; send the body.",
+    ),
+    (
+        101,
+        "Switching Protocols",
+        "The server agrees to change protocols.",
+    ),
     (200, "OK", "The request succeeded."),
     (201, "Created", "A new resource was created."),
-    (202, "Accepted", "The request was accepted for later processing."),
-    (204, "No Content", "The request succeeded and there is no body."),
-    (206, "Partial Content", "Part of the resource, as a range request asked."),
-    (301, "Moved Permanently", "The resource has a new permanent address."),
+    (
+        202,
+        "Accepted",
+        "The request was accepted for later processing.",
+    ),
+    (
+        204,
+        "No Content",
+        "The request succeeded and there is no body.",
+    ),
+    (
+        206,
+        "Partial Content",
+        "Part of the resource, as a range request asked.",
+    ),
+    (
+        301,
+        "Moved Permanently",
+        "The resource has a new permanent address.",
+    ),
     (302, "Found", "A temporary redirect."),
     (303, "See Other", "Look at another URL, usually with GET."),
-    (304, "Not Modified", "The client's cached copy is still current."),
-    (307, "Temporary Redirect", "A temporary redirect that keeps the method."),
-    (308, "Permanent Redirect", "A permanent redirect that keeps the method."),
+    (
+        304,
+        "Not Modified",
+        "The client's cached copy is still current.",
+    ),
+    (
+        307,
+        "Temporary Redirect",
+        "A temporary redirect that keeps the method.",
+    ),
+    (
+        308,
+        "Permanent Redirect",
+        "A permanent redirect that keeps the method.",
+    ),
     (400, "Bad Request", "The request is malformed."),
     (401, "Unauthorized", "Authentication is required."),
     (403, "Forbidden", "The server refuses to show the resource."),
     (404, "Not Found", "Nothing lives at that address."),
-    (405, "Method Not Allowed", "The URL exists, but not for that method."),
+    (
+        405,
+        "Method Not Allowed",
+        "The URL exists, but not for that method.",
+    ),
     (408, "Request Timeout", "The client took too long."),
-    (409, "Conflict", "The request clashes with the current state."),
+    (
+        409,
+        "Conflict",
+        "The request clashes with the current state.",
+    ),
     (410, "Gone", "The resource existed and is gone for good."),
-    (413, "Content Too Large", "The body is larger than the server accepts."),
-    (415, "Unsupported Media Type", "The server does not handle that format."),
+    (
+        413,
+        "Content Too Large",
+        "The body is larger than the server accepts.",
+    ),
+    (
+        415,
+        "Unsupported Media Type",
+        "The server does not handle that format.",
+    ),
     (418, "I'm a Teapot", "The server is, in fact, a teapot."),
-    (422, "Unprocessable Content", "The syntax is fine but the meaning is not."),
-    (429, "Too Many Requests", "The client is being rate limited."),
-    (500, "Internal Server Error", "Something went wrong on the server."),
-    (501, "Not Implemented", "The server does not implement that feature."),
-    (502, "Bad Gateway", "An upstream server sent an invalid answer."),
-    (503, "Service Unavailable", "The server is overloaded or down for now."),
-    (504, "Gateway Timeout", "An upstream server did not answer in time."),
+    (
+        422,
+        "Unprocessable Content",
+        "The syntax is fine but the meaning is not.",
+    ),
+    (
+        429,
+        "Too Many Requests",
+        "The client is being rate limited.",
+    ),
+    (
+        500,
+        "Internal Server Error",
+        "Something went wrong on the server.",
+    ),
+    (
+        501,
+        "Not Implemented",
+        "The server does not implement that feature.",
+    ),
+    (
+        502,
+        "Bad Gateway",
+        "An upstream server sent an invalid answer.",
+    ),
+    (
+        503,
+        "Service Unavailable",
+        "The server is overloaded or down for now.",
+    ),
+    (
+        504,
+        "Gateway Timeout",
+        "An upstream server did not answer in time.",
+    ),
 ];
 
 const MIME_TYPES: &[(&str, &str, &str)] = &[
@@ -52,7 +132,11 @@ const MIME_TYPES: &[(&str, &str, &str)] = &[
     ("css", "text/css", "text"),
     ("csv", "text/csv", "text"),
     ("doc", "application/msword", "document"),
-    ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document"),
+    (
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "document",
+    ),
     ("gif", "image/gif", "image"),
     ("gz", "application/gzip", "archive"),
     ("htm", "text/html", "text"),
@@ -69,8 +153,16 @@ const MIME_TYPES: &[(&str, &str, &str)] = &[
     ("mp3", "audio/mpeg", "audio"),
     ("mp4", "video/mp4", "video"),
     ("mpeg", "video/mpeg", "video"),
-    ("odp", "application/vnd.oasis.opendocument.presentation", "document"),
-    ("ods", "application/vnd.oasis.opendocument.spreadsheet", "document"),
+    (
+        "odp",
+        "application/vnd.oasis.opendocument.presentation",
+        "document",
+    ),
+    (
+        "ods",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "document",
+    ),
     ("odt", "application/vnd.oasis.opendocument.text", "document"),
     ("oga", "audio/ogg", "audio"),
     ("ogg", "audio/ogg", "audio"),
@@ -79,7 +171,11 @@ const MIME_TYPES: &[(&str, &str, &str)] = &[
     ("pdf", "application/pdf", "document"),
     ("png", "image/png", "image"),
     ("ppt", "application/vnd.ms-powerpoint", "document"),
-    ("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "document"),
+    (
+        "pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "document",
+    ),
     ("rar", "application/vnd.rar", "archive"),
     ("rtf", "application/rtf", "document"),
     ("svg", "image/svg+xml", "image"),
@@ -95,7 +191,11 @@ const MIME_TYPES: &[(&str, &str, &str)] = &[
     ("woff", "font/woff", "font"),
     ("woff2", "font/woff2", "font"),
     ("xls", "application/vnd.ms-excel", "document"),
-    ("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "document"),
+    (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "document",
+    ),
     ("xml", "application/xml", "data"),
     ("zip", "application/zip", "archive"),
 ];
@@ -292,12 +392,20 @@ const FILE_SIGNATURES: &[(&str, &str, &str)] = &[
     ("jpg", "FF D8 FF", "JPEG image"),
     ("mkv", "1A 45 DF A3", "Matroska container"),
     ("mp3", "49 44 33", "MP3 with an ID3 tag"),
-    ("mp4", "00 00 00 18 66 74 79 70", "ISO base media (often MP4)"),
+    (
+        "mp4",
+        "00 00 00 18 66 74 79 70",
+        "ISO base media (often MP4)",
+    ),
     ("ogg", "4F 67 67 53", "Ogg container"),
     ("pdf", "25 50 44 46 2D", "%PDF-"),
     ("png", "89 50 4E 47 0D 0A 1A 0A", "PNG image"),
     ("rar", "52 61 72 21 1A 07", "RAR archive"),
-    ("sqlite", "53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00", "SQLite database"),
+    (
+        "sqlite",
+        "53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00",
+        "SQLite database",
+    ),
     ("tar", "75 73 74 61 72", "\"ustar\" at offset 257"),
     ("webp", "52 49 46 46", "RIFF container (WebP)"),
     ("xlsx", "50 4B 03 04", "ZIP container (Office Open XML)"),
@@ -328,8 +436,14 @@ const HTTP_HEADERS: &[(&str, &str)] = &[
     ("Cookie", "Cookies the client sends back."),
     ("ETag", "A version tag for a cached resource."),
     ("Host", "The site the client asked for."),
-    ("If-Modified-Since", "Only send it if it changed after this date."),
-    ("If-None-Match", "Only send it if the ETag no longer matches."),
+    (
+        "If-Modified-Since",
+        "Only send it if it changed after this date.",
+    ),
+    (
+        "If-None-Match",
+        "Only send it if the ETag no longer matches.",
+    ),
     ("Last-Modified", "When the resource last changed."),
     ("Location", "Where a redirect or a new resource lives."),
     ("Referer", "The page that linked to the request."),
@@ -340,19 +454,56 @@ const HTTP_HEADERS: &[(&str, &str)] = &[
 ];
 
 const TIMEZONES: &[&str] = &[
-    "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi",
-    "America/Anchorage", "America/Bogota", "America/Chicago", "America/Denver",
-    "America/Los_Angeles", "America/Mexico_City", "America/New_York", "America/Phoenix",
-    "America/Sao_Paulo", "America/Toronto", "Asia/Bangkok", "Asia/Dubai",
-    "Asia/Hong_Kong", "Asia/Jakarta", "Asia/Jerusalem", "Asia/Kolkata",
-    "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Tokyo",
-    "Australia/Adelaide", "Australia/Brisbane", "Australia/Melbourne", "Australia/Perth",
-    "Australia/Sydney", "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin",
-    "Europe/Brussels", "Europe/Dublin", "Europe/Helsinki", "Europe/Istanbul",
-    "Europe/Lisbon", "Europe/London", "Europe/Madrid", "Europe/Moscow",
-    "Europe/Paris", "Europe/Prague", "Europe/Rome", "Europe/Stockholm",
-    "Europe/Vienna", "Europe/Warsaw", "Europe/Zurich", "Pacific/Auckland",
-    "Pacific/Honolulu", "UTC",
+    "Africa/Cairo",
+    "Africa/Johannesburg",
+    "Africa/Lagos",
+    "Africa/Nairobi",
+    "America/Anchorage",
+    "America/Bogota",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Mexico_City",
+    "America/New_York",
+    "America/Phoenix",
+    "America/Sao_Paulo",
+    "America/Toronto",
+    "Asia/Bangkok",
+    "Asia/Dubai",
+    "Asia/Hong_Kong",
+    "Asia/Jakarta",
+    "Asia/Jerusalem",
+    "Asia/Kolkata",
+    "Asia/Seoul",
+    "Asia/Shanghai",
+    "Asia/Singapore",
+    "Asia/Tokyo",
+    "Australia/Adelaide",
+    "Australia/Brisbane",
+    "Australia/Melbourne",
+    "Australia/Perth",
+    "Australia/Sydney",
+    "Europe/Amsterdam",
+    "Europe/Athens",
+    "Europe/Berlin",
+    "Europe/Brussels",
+    "Europe/Dublin",
+    "Europe/Helsinki",
+    "Europe/Istanbul",
+    "Europe/Lisbon",
+    "Europe/London",
+    "Europe/Madrid",
+    "Europe/Moscow",
+    "Europe/Paris",
+    "Europe/Prague",
+    "Europe/Rome",
+    "Europe/Stockholm",
+    "Europe/Vienna",
+    "Europe/Warsaw",
+    "Europe/Zurich",
+    "Pacific/Auckland",
+    "Pacific/Honolulu",
+    "UTC",
 ];
 
 fn status(code: u16) -> Option<&'static (u16, &'static str, &'static str)> {
@@ -361,12 +512,16 @@ fn status(code: u16) -> Option<&'static (u16, &'static str, &'static str)> {
 
 fn mime(key: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {
     let key = key.trim().trim_start_matches('.').to_ascii_lowercase();
-    MIME_TYPES.iter().find(|m| m.0.eq_ignore_ascii_case(&key) || m.1.eq_ignore_ascii_case(&key))
+    MIME_TYPES
+        .iter()
+        .find(|m| m.0.eq_ignore_ascii_case(&key) || m.1.eq_ignore_ascii_case(&key))
 }
 
 fn entity(key: &str) -> Option<&'static (&'static str, &'static str, u32)> {
     let key = key.trim().trim_start_matches('&').trim_end_matches(';');
-    HTML_ENTITIES.iter().find(|e| e.0.eq_ignore_ascii_case(key) || e.2.to_string() == key)
+    HTML_ENTITIES
+        .iter()
+        .find(|e| e.0.eq_ignore_ascii_case(key) || e.2.to_string() == key)
 }
 
 fn encode(s: &str) -> String {
@@ -383,8 +538,10 @@ fn encode(s: &str) -> String {
 
 fn http_status(_: &str, o: &mut Opts) -> Result<Output, String> {
     let code = o.int(0)?;
-    let code = u16::try_from(code).map_err(|_| "A status code is between 100 and 599.".to_owned())?;
-    let (code, reason, about) = status(code).ok_or_else(|| format!("{code} is not a standard HTTP status code."))?;
+    let code =
+        u16::try_from(code).map_err(|_| "A status code is between 100 and 599.".to_owned())?;
+    let (code, reason, about) =
+        status(code).ok_or_else(|| format!("{code} is not a standard HTTP status code."))?;
     Ok(table(&[
         ("Code", code.to_string()),
         ("Reason", (*reason).to_owned()),
@@ -395,18 +552,30 @@ fn http_status(_: &str, o: &mut Opts) -> Result<Output, String> {
 
 fn mime_type(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
-    let (ext, mime, kind) = mime(key).ok_or_else(|| format!("“{key}” is not in the table; try an extension such as png or a type such as image/png."))?;
+    let (ext, mime, kind) = mime(key).ok_or_else(|| {
+        format!(
+            "“{key}” is not in the table; try an extension such as png or a type such as image/png."
+        )
+    })?;
     Ok(table(&[
         ("Extension", format!(".{ext}")),
         ("Media type", (*mime).to_owned()),
         ("Kind", (*kind).to_owned()),
-        ("Text", if mime.starts_with("text/") || mime.ends_with("json") || mime.ends_with("xml") { "yes".to_owned() } else { "bytes".to_owned() }),
+        (
+            "Text",
+            if mime.starts_with("text/") || mime.ends_with("json") || mime.ends_with("xml") {
+                "yes".to_owned()
+            } else {
+                "bytes".to_owned()
+            },
+        ),
     ]))
 }
 
 fn jwt(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut parts = text.trim().split('.');
-    let (Some(header), Some(payload), Some(signature)) = (parts.next(), parts.next(), parts.next()) else {
+    let (Some(header), Some(payload), Some(signature)) = (parts.next(), parts.next(), parts.next())
+    else {
         return Err("A JWT has three dot-separated parts.".into());
     };
     if parts.next().is_some() {
@@ -428,7 +597,10 @@ fn jwt(text: &str, _: &mut Opts) -> Result<Output, String> {
         .code(pretty(decode(header)?))
         .note("Payload")
         .code(pretty(decode(payload)?))
-        .facts(&[("Signature", format!("{signature} ({} bytes)", signature.len() * 3 / 4))]))
+        .facts(&[(
+            "Signature",
+            format!("{signature} ({} bytes)", signature.len() * 3 / 4),
+        )]))
 }
 
 fn uuid(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -444,11 +616,30 @@ fn uuid(_: &str, o: &mut Opts) -> Result<Output, String> {
         b[8] = (b[8] & 0x3f) | 0x80;
         let s = format!(
             "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            b[4],
+            b[5],
+            b[6],
+            b[7],
+            b[8],
+            b[9],
+            b[10],
+            b[11],
+            b[12],
+            b[13],
+            b[14],
+            b[15]
         );
         out.push(if o.flag { s.to_uppercase() } else { s });
     }
-    Ok(if n == 1 { table(&[("UUID", out.remove(0))]) } else { super::list(out) })
+    Ok(if n == 1 {
+        table(&[("UUID", out.remove(0))])
+    } else {
+        super::list(out)
+    })
 }
 
 fn password(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -488,9 +679,17 @@ fn cron(text: &str, _: &mut Opts) -> Result<Output, String> {
                 for n in part.split('-') {
                     let n = n.trim();
                     if !n.is_empty() && n != "*/1" {
-                        let v: i32 = n.parse().map_err(|_| format!("“{n}” is not a number in the {} field.", names[i].to_lowercase()))?;
+                        let v: i32 = n.parse().map_err(|_| {
+                            format!(
+                                "“{n}” is not a number in the {} field.",
+                                names[i].to_lowercase()
+                            )
+                        })?;
                         if v < lo || v > hi {
-                            return Err(format!("The {} field goes from {lo} to {hi}.", names[i].to_lowercase()));
+                            return Err(format!(
+                                "The {} field goes from {lo} to {hi}.",
+                                names[i].to_lowercase()
+                            ));
                         }
                     }
                 }
@@ -504,12 +703,19 @@ fn cron(text: &str, _: &mut Opts) -> Result<Output, String> {
 fn regex_test(text: &str, o: &mut Opts) -> Result<Output, String> {
     let pattern = o.first;
     let re = Regex::new(pattern).map_err(|e| format!("Not a regular expression: {e}"))?;
-    let found: Vec<Vec<String>> = re.find_iter(text).map(|m| vec![m.as_str().to_owned(), m.start().to_string()]).collect();
+    let found: Vec<Vec<String>> = re
+        .find_iter(text)
+        .map(|m| vec![m.as_str().to_owned(), m.start().to_string()])
+        .collect();
     if found.is_empty() {
         return Ok(verdict(false, "No matches."));
     }
     let n = found.len();
-    Ok(verdict(true, format!("{n} match{}.", if n == 1 { "" } else { "es" })).table(&["Match", "At"], found))
+    Ok(verdict(
+        true,
+        format!("{n} match{}.", if n == 1 { "" } else { "es" }),
+    )
+    .table(&["Match", "At"], found))
 }
 
 fn curl(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -538,7 +744,14 @@ fn curl(text: &str, _: &mut Opts) -> Result<Output, String> {
     let header = if headers.is_empty() {
         String::new()
     } else {
-        format!(",\n  headers: {{{}}}", headers.iter().map(|h| format!("{:?}", h)).collect::<Vec<_>>().join(", "))
+        format!(
+            ",\n  headers: {{{}}}",
+            headers
+                .iter()
+                .map(|h| format!("{:?}", h))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     };
     Ok(super::snippet(format!(
         "fetch({url:?}, {{\n  method: {method:?}{header}{}\n}});",
@@ -576,7 +789,11 @@ fn user_agent(text: &str, _: &mut Opts) -> Result<Output, String> {
     } else {
         "unknown"
     };
-    let version = ua.split('/').nth(1).and_then(|s| s.split_whitespace().next()).unwrap_or("");
+    let version = ua
+        .split('/')
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or("");
     Ok(table(&[
         ("Browser", browser.to_owned()),
         ("Version", version.to_owned()),
@@ -610,13 +827,21 @@ fn valid_url(text: &str, _: &mut Opts) -> Result<Output, String> {
 
 fn valid_ip(text: &str, _: &mut Opts) -> Result<Output, String> {
     match text.trim().parse::<IpAddr>() {
-        Ok(ip) => Ok(verdict(true, format!("Valid {} address: {}.", if ip.is_ipv4() { "IPv4" } else { "IPv6" }, ip))),
+        Ok(ip) => Ok(verdict(
+            true,
+            format!(
+                "Valid {} address: {}.",
+                if ip.is_ipv4() { "IPv4" } else { "IPv6" },
+                ip
+            ),
+        )),
         Err(_) => Err("Not a valid IPv4 or IPv6 address.".into()),
     }
 }
 
 fn valid_uuid(text: &str, _: &mut Opts) -> Result<Output, String> {
-    let re = Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
+    let re =
+        Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
     if re.is_match(text.trim()) {
         Ok(verdict(true, "Valid UUID."))
     } else {
@@ -629,32 +854,49 @@ fn luhn(s: &str) -> bool {
     if digits.len() < 2 {
         return false;
     }
-    digits.iter().rev().enumerate().map(|(i, d)| {
-        let mut d = *d;
-        if i % 2 == 1 {
-            d *= 2;
-            if d > 9 {
-                d -= 9;
+    digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, d)| {
+            let mut d = *d;
+            if i % 2 == 1 {
+                d *= 2;
+                if d > 9 {
+                    d -= 9;
+                }
             }
-        }
-        d
-    }).sum::<u32>() % 10 == 0
+            d
+        })
+        .sum::<u32>()
+        % 10
+        == 0
 }
 
 fn valid_card(text: &str, _: &mut Opts) -> Result<Output, String> {
-    let digits: String = text.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    let digits: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect();
     if !digits.chars().all(|c| c.is_ascii_digit()) || !(12..=19).contains(&digits.len()) {
         return Err("A card number has 12 to 19 digits.".into());
     }
     if luhn(&digits) {
-        Ok(verdict(true, format!("Valid by the Luhn check ({} digits).", digits.len())))
+        Ok(verdict(
+            true,
+            format!("Valid by the Luhn check ({} digits).", digits.len()),
+        ))
     } else {
         Err("The Luhn check fails: a digit is wrong.".into())
     }
 }
 
 fn iban_valid(s: &str) -> bool {
-    let compact: String = s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase();
+    let compact: String = s
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_uppercase();
     if compact.len() < 5 || compact.len() > 34 {
         return false;
     }
@@ -684,7 +926,14 @@ fn valid_domain(text: &str, _: &mut Opts) -> Result<Output, String> {
     let re = Regex::new(r"(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$").unwrap();
     let d = text.trim().trim_end_matches('.');
     if re.is_match(d) {
-        Ok(verdict(true, format!("Valid domain name, with {} label{}.", d.split('.').count(), if d.split('.').count() == 1 { "" } else { "s" })))
+        Ok(verdict(
+            true,
+            format!(
+                "Valid domain name, with {} label{}.",
+                d.split('.').count(),
+                if d.split('.').count() == 1 { "" } else { "s" }
+            ),
+        ))
     } else {
         Err("Not a valid domain name.".into())
     }
@@ -701,14 +950,20 @@ fn valid_semver(text: &str, _: &mut Opts) -> Result<Output, String> {
 
 fn valid_json(text: &str, _: &mut Opts) -> Result<Output, String> {
     match hypereffect::serde_json::from_str::<hypereffect::Value>(text) {
-        Ok(v) => Ok(verdict(true, format!("Valid JSON: {} at the top.", match v {
-            hypereffect::Value::Array(_) => "an array",
-            hypereffect::Value::Object(_) => "an object",
-            hypereffect::Value::String(_) => "a string",
-            hypereffect::Value::Number(_) => "a number",
-            hypereffect::Value::Bool(_) => "a boolean",
-            hypereffect::Value::Null => "null",
-        }))),
+        Ok(v) => Ok(verdict(
+            true,
+            format!(
+                "Valid JSON: {} at the top.",
+                match v {
+                    hypereffect::Value::Array(_) => "an array",
+                    hypereffect::Value::Object(_) => "an object",
+                    hypereffect::Value::String(_) => "a string",
+                    hypereffect::Value::Number(_) => "a number",
+                    hypereffect::Value::Bool(_) => "a boolean",
+                    hypereffect::Value::Null => "null",
+                }
+            ),
+        )),
         Err(e) => Err(format!("Not JSON: {e}.")),
     }
 }
@@ -724,12 +979,19 @@ fn meta_tags(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut rows = Vec::new();
     if let Some(c) = title.captures(text) {
         let value = c[1].trim();
-        rows.push(("Title".to_owned(), format!("{value} ({} characters)", value.chars().count())));
+        rows.push((
+            "Title".to_owned(),
+            format!("{value} ({} characters)", value.chars().count()),
+        ));
     }
     for c in meta.captures_iter(text) {
         let attrs = &c[1];
-        let Some(value) = meta_attr(attrs, "content") else { continue };
-        let key = meta_attr(attrs, "name").or_else(|| meta_attr(attrs, "property")).or_else(|| meta_attr(attrs, "http-equiv"));
+        let Some(value) = meta_attr(attrs, "content") else {
+            continue;
+        };
+        let key = meta_attr(attrs, "name")
+            .or_else(|| meta_attr(attrs, "property"))
+            .or_else(|| meta_attr(attrs, "http-equiv"));
         if let Some(key) = key {
             rows.push((key, value));
         }
@@ -737,7 +999,12 @@ fn meta_tags(text: &str, _: &mut Opts) -> Result<Output, String> {
     if rows.is_empty() {
         Ok(verdict(false, "No title or meta tags found."))
     } else {
-        Ok(table(&rows.iter().map(|(a, b)| (a.as_str(), b.clone())).collect::<Vec<_>>()))
+        Ok(table(
+            &rows
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.clone()))
+                .collect::<Vec<_>>(),
+        ))
     }
 }
 
@@ -746,7 +1013,9 @@ fn open_graph(text: &str, _: &mut Opts) -> Result<Output, String> {
     let mut rows = Vec::new();
     for c in meta.captures_iter(text) {
         let attrs = &c[1];
-        let Some(key) = meta_attr(attrs, "property").or_else(|| meta_attr(attrs, "name")) else { continue };
+        let Some(key) = meta_attr(attrs, "property").or_else(|| meta_attr(attrs, "name")) else {
+            continue;
+        };
         if key.to_ascii_lowercase().starts_with("og:") {
             if let Some(value) = meta_attr(attrs, "content") {
                 rows.push((key, value));
@@ -756,18 +1025,33 @@ fn open_graph(text: &str, _: &mut Opts) -> Result<Output, String> {
     if rows.is_empty() {
         Ok("No Open Graph tags found; add <meta property=\"og:title\" ...>.".into())
     } else {
-        Ok(table(&rows.iter().map(|(a, b)| (a.as_str(), b.clone())).collect::<Vec<_>>()))
+        Ok(table(
+            &rows
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.clone()))
+                .collect::<Vec<_>>(),
+        ))
     }
 }
 
 fn sitemap(text: &str, _: &mut Opts) -> Result<Output, String> {
-    let urls: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let urls: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     if urls.is_empty() {
         return Err("Write one URL per line.".into());
     }
-    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
     for url in &urls {
-        let escaped = url.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+        let escaped = url
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;");
         out.push_str(&format!("  <url><loc>{escaped}</loc></url>\n"));
     }
     out.push_str("</urlset>");
@@ -786,11 +1070,20 @@ fn utm(_: &str, o: &mut Opts) -> Result<Output, String> {
         ("utm_term", o.field(4)),
         ("utm_content", o.field(5)),
     ];
-    let query: Vec<String> = pairs.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| format!("{k}={}", encode(v))).collect();
+    let query: Vec<String> = pairs
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| format!("{k}={}", encode(v)))
+        .collect();
     if query.is_empty() {
         return Err("Fill in at least one campaign field.".into());
     }
-    Ok(super::snippet(format!("{}{}{}", base, if base.contains('?') { "&" } else { "?" }, query.join("&"))))
+    Ok(super::snippet(format!(
+        "{}{}{}",
+        base,
+        if base.contains('?') { "&" } else { "?" },
+        query.join("&")
+    )))
 }
 
 fn serp(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -802,14 +1095,41 @@ fn serp(_: &str, o: &mut Opts) -> Result<Output, String> {
         .facts(&[("", title.to_owned()), ("", url.to_owned())])
         .text(description)
         .facts(&[
-            ("Title", format!("{t} characters{}", if t > 60 { ", too long: about 60 fit" } else { "" })),
-            ("Description", format!("{d} characters{}", if d > 160 { ", too long: about 160 fit" } else { "" })),
+            (
+                "Title",
+                format!(
+                    "{t} characters{}",
+                    if t > 60 {
+                        ", too long: about 60 fit"
+                    } else {
+                        ""
+                    }
+                ),
+            ),
+            (
+                "Description",
+                format!(
+                    "{d} characters{}",
+                    if d > 160 {
+                        ", too long: about 160 fit"
+                    } else {
+                        ""
+                    }
+                ),
+            ),
             ("URL", format!("{} characters", url.chars().count())),
         ]))
 }
 
 fn robots(_: &str, o: &mut Opts) -> Result<Output, String> {
-    let mut out = format!("User-agent: {}\n", if o.field(0).is_empty() { "*" } else { o.field(0) });
+    let mut out = format!(
+        "User-agent: {}\n",
+        if o.field(0).is_empty() {
+            "*"
+        } else {
+            o.field(0)
+        }
+    );
     if !o.field(1).is_empty() {
         out.push_str(&format!("Disallow: {}\n", o.field(1)));
     }
@@ -824,47 +1144,80 @@ fn robots(_: &str, o: &mut Opts) -> Result<Output, String> {
 
 fn cidr(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (addr, prefix) = match o.field(0).split_once('/') {
-        Some((a, p)) => (a, p.parse::<u8>().map_err(|_| "The prefix after / is a number from 0 to 32.")?),
+        Some((a, p)) => (
+            a,
+            p.parse::<u8>()
+                .map_err(|_| "The prefix after / is a number from 0 to 32.")?,
+        ),
         None => (o.field(0), 32),
     };
-    let ip: Ipv4Addr = addr.parse().map_err(|_| "Write an IPv4 address such as 192.168.1.10/24.")?;
+    let ip: Ipv4Addr = addr
+        .parse()
+        .map_err(|_| "Write an IPv4 address such as 192.168.1.10/24.")?;
     if prefix > 32 {
         return Err("An IPv4 prefix goes from 0 to 32.".into());
     }
-    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
     let value = u32::from(ip);
     let network = value & mask;
     let broadcast = network | !mask;
-    let hosts = if prefix >= 31 { 0 } else { (1u64 << (32 - prefix)) - 2 };
+    let hosts = if prefix >= 31 {
+        0
+    } else {
+        (1u64 << (32 - prefix)) - 2
+    };
     Ok(table(&[
         ("Address", ip.to_string()),
         ("Prefix", format!("/{prefix}")),
         ("Netmask", Ipv4Addr::from(mask).to_string()),
         ("Network", Ipv4Addr::from(network).to_string()),
         ("Broadcast", Ipv4Addr::from(broadcast).to_string()),
-        ("First host", Ipv4Addr::from(network + u32::from(prefix < 31)).to_string()),
-        ("Last host", Ipv4Addr::from(broadcast - u32::from(prefix < 31)).to_string()),
+        (
+            "First host",
+            Ipv4Addr::from(network + u32::from(prefix < 31)).to_string(),
+        ),
+        (
+            "Last host",
+            Ipv4Addr::from(broadcast - u32::from(prefix < 31)).to_string(),
+        ),
         ("Hosts", hosts.to_string()),
     ]))
 }
 
 fn ip_convert(text: &str, _: &mut Opts) -> Result<Output, String> {
-    let ip: Ipv4Addr = text.trim().parse().map_err(|_| "Write an IPv4 address such as 192.168.1.10.")?;
+    let ip: Ipv4Addr = text
+        .trim()
+        .parse()
+        .map_err(|_| "Write an IPv4 address such as 192.168.1.10.")?;
     let n = u32::from(ip);
     Ok(table(&[
         ("Dotted", ip.to_string()),
         ("Integer", n.to_string()),
         ("Hex", format!("0x{n:08X}")),
         ("Binary", format!("{n:032b}")),
-        ("Class", match ip.octets()[0] {
-            0..=127 => "A",
-            128..=191 => "B",
-            192..=223 => "C",
-            224..=239 => "D (multicast)",
-            _ => "E (reserved)",
-        }.to_owned()),
-        ("Private", if ip.is_private() { "yes" } else { "no" }.to_owned()),
-        ("Loopback", if ip.is_loopback() { "yes" } else { "no" }.to_owned()),
+        (
+            "Class",
+            match ip.octets()[0] {
+                0..=127 => "A",
+                128..=191 => "B",
+                192..=223 => "C",
+                224..=239 => "D (multicast)",
+                _ => "E (reserved)",
+            }
+            .to_owned(),
+        ),
+        (
+            "Private",
+            if ip.is_private() { "yes" } else { "no" }.to_owned(),
+        ),
+        (
+            "Loopback",
+            if ip.is_loopback() { "yes" } else { "no" }.to_owned(),
+        ),
     ]))
 }
 
@@ -877,10 +1230,34 @@ fn mac(text: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(table(&[
         ("Colon", b.join(":").to_uppercase()),
         ("Hyphen", b.join("-").to_uppercase()),
-        ("Cisco", format!("{}.{}.{}", b[0..2].join(""), b[2..4].join(""), b[4..6].join(""))),
+        (
+            "Cisco",
+            format!(
+                "{}.{}.{}",
+                b[0..2].join(""),
+                b[2..4].join(""),
+                b[4..6].join("")
+            ),
+        ),
         ("OUI", b[0..3].join(":").to_uppercase()),
-        ("Multicast", if u8::from_str_radix(b[0], 16).unwrap_or(0) & 1 == 1 { "yes" } else { "no" }.to_owned()),
-        ("Local", if u8::from_str_radix(b[0], 16).unwrap_or(0) & 2 == 2 { "yes" } else { "no" }.to_owned()),
+        (
+            "Multicast",
+            if u8::from_str_radix(b[0], 16).unwrap_or(0) & 1 == 1 {
+                "yes"
+            } else {
+                "no"
+            }
+            .to_owned(),
+        ),
+        (
+            "Local",
+            if u8::from_str_radix(b[0], 16).unwrap_or(0) & 2 == 2 {
+                "yes"
+            } else {
+                "no"
+            }
+            .to_owned(),
+        ),
     ]))
 }
 
@@ -891,26 +1268,40 @@ fn port(_: &str, o: &mut Opts) -> Result<Output, String> {
     } else {
         PORTS.iter().find(|p| p.1.eq_ignore_ascii_case(&key))
     };
-    let (n, service, about) = found.ok_or_else(|| format!("“{}” is not in the table.", o.field(0)))?;
+    let (n, service, about) =
+        found.ok_or_else(|| format!("“{}” is not in the table.", o.field(0)))?;
     Ok(table(&[
         ("Port", n.to_string()),
         ("Service", (*service).to_owned()),
         ("About", (*about).to_owned()),
-        ("Transport", if *n == 53 { "UDP and TCP".to_owned() } else { "TCP".to_owned() }),
+        (
+            "Transport",
+            if *n == 53 {
+                "UDP and TCP".to_owned()
+            } else {
+                "TCP".to_owned()
+            },
+        ),
     ]))
 }
 
 fn chmod(_: &str, o: &mut Opts) -> Result<Output, String> {
     let raw = o.field(0);
     let (mode, text) = if raw.chars().all(|c| c.is_ascii_digit()) {
-        let mode = u32::from_str_radix(raw, 8).map_err(|_| "A numeric mode is octal, such as 755.")?;
+        let mode =
+            u32::from_str_radix(raw, 8).map_err(|_| "A numeric mode is octal, such as 755.")?;
         if mode > 0o7777 {
             return Err("A permission mode is at most 7777 in octal.".into());
         }
         let mut text = String::new();
         for (i, who) in ["user", "group", "other"].iter().enumerate() {
             let bits = (mode >> (6 - i * 3)) & 7;
-            text.push_str(&format!("{who}: {}{}{}\n", if bits & 4 != 0 { 'r' } else { '-' }, if bits & 2 != 0 { 'w' } else { '-' }, if bits & 1 != 0 { 'x' } else { '-' }));
+            text.push_str(&format!(
+                "{who}: {}{}{}\n",
+                if bits & 4 != 0 { 'r' } else { '-' },
+                if bits & 2 != 0 { 'w' } else { '-' },
+                if bits & 1 != 0 { 'x' } else { '-' }
+            ));
         }
         (mode, text)
     } else {
@@ -937,13 +1328,24 @@ fn chmod(_: &str, o: &mut Opts) -> Result<Output, String> {
 fn ascii(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
     if key.is_empty() {
-        let rows = (32u8..=126).map(|c| vec![(c as char).to_string(), c.to_string(), format!("0x{c:02X}"), format!("{c:08b}")]);
-        return Ok(super::grid(&["Character", "Decimal", "Hex", "Binary"], rows));
+        let rows = (32u8..=126).map(|c| {
+            vec![
+                (c as char).to_string(),
+                c.to_string(),
+                format!("0x{c:02X}"),
+                format!("{c:08b}"),
+            ]
+        });
+        return Ok(super::grid(
+            &["Character", "Decimal", "Hex", "Binary"],
+            rows,
+        ));
     }
     let code = if key.chars().count() == 1 {
         key.chars().next().unwrap() as u32
     } else {
-        key.parse::<u32>().map_err(|_| "Write one character or a code point.".to_owned())?
+        key.parse::<u32>()
+            .map_err(|_| "Write one character or a code point.".to_owned())?
     };
     let c = char::from_u32(code).ok_or("That is not a Unicode code point.")?;
     Ok(table(&[
@@ -951,21 +1353,38 @@ fn ascii(_: &str, o: &mut Opts) -> Result<Output, String> {
         ("Decimal", code.to_string()),
         ("Hex", format!("U+{code:04X}")),
         ("HTML", format!("&#{code};")),
-        ("UTF-8", c.to_string().as_bytes().iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")),
+        (
+            "UTF-8",
+            c.to_string()
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
     ]))
 }
 
 fn html_entity(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0);
     if key.is_empty() {
-        return Ok(table(&HTML_ENTITIES.iter().map(|(name, entity, code)| (*name, format!("{entity}  U+{code:04X}  {code}"))).collect::<Vec<_>>()));
+        return Ok(table(
+            &HTML_ENTITIES
+                .iter()
+                .map(|(name, entity, code)| (*name, format!("{entity}  U+{code:04X}  {code}")))
+                .collect::<Vec<_>>(),
+        ));
     }
-    let (name, entity, code) = entity(key).ok_or_else(|| format!("“{key}” is not in the table."))?;
+    let (name, entity, code) =
+        entity(key).ok_or_else(|| format!("“{key}” is not in the table."))?;
     Ok(table(&[
         ("Name", (*name).to_owned()),
         ("Entity", (*entity).to_owned()),
         ("Code point", format!("U+{code:04X}")),
-        ("Character", char::from_u32(*code).map_or(String::new(), |c| c.to_string())),
+        (
+            "Character",
+            char::from_u32(*code).map_or(String::new(), |c| c.to_string()),
+        ),
     ]))
 }
 
@@ -973,33 +1392,59 @@ fn country_code(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     let matches: Vec<&(&str, &str, &str, &str)> = COUNTRY_CODES
         .iter()
-        .filter(|c| c.0.to_ascii_lowercase().contains(&key) || c.1.eq_ignore_ascii_case(&key) || c.2.eq_ignore_ascii_case(&key))
+        .filter(|c| {
+            c.0.to_ascii_lowercase().contains(&key)
+                || c.1.eq_ignore_ascii_case(&key)
+                || c.2.eq_ignore_ascii_case(&key)
+        })
         .collect();
     if matches.is_empty() {
         return Err(format!("No country matches “{}”.", o.field(0)));
     }
-    Ok(table(&matches.iter().map(|c| (c.0, format!("{}  {}  {}", c.1, c.2, c.3))).collect::<Vec<_>>()))
+    Ok(table(
+        &matches
+            .iter()
+            .map(|c| (c.0, format!("{}  {}  {}", c.1, c.2, c.3)))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 fn currency_code(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).to_ascii_lowercase();
     let matches: Vec<&(&str, &str, &str)> = CURRENCIES
         .iter()
-        .filter(|c| c.0.eq_ignore_ascii_case(&key) || c.1.to_ascii_lowercase().contains(&key) || c.2.to_ascii_lowercase().contains(&key))
+        .filter(|c| {
+            c.0.eq_ignore_ascii_case(&key)
+                || c.1.to_ascii_lowercase().contains(&key)
+                || c.2.to_ascii_lowercase().contains(&key)
+        })
         .collect();
     if matches.is_empty() {
         return Err(format!("No currency matches “{}”.", o.field(0)));
     }
-    Ok(table(&matches.iter().map(|c| (c.0, format!("{} — {}", c.1, c.2))).collect::<Vec<_>>()))
+    Ok(table(
+        &matches
+            .iter()
+            .map(|c| (c.0, format!("{} — {}", c.1, c.2)))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 fn file_signature(_: &str, o: &mut Opts) -> Result<Output, String> {
     let key = o.field(0).trim_start_matches('.').to_ascii_lowercase();
-    let matches: Vec<&(&str, &str, &str)> = FILE_SIGNATURES.iter().filter(|f| f.0.eq_ignore_ascii_case(&key)).collect();
+    let matches: Vec<&(&str, &str, &str)> = FILE_SIGNATURES
+        .iter()
+        .filter(|f| f.0.eq_ignore_ascii_case(&key))
+        .collect();
     if matches.is_empty() {
         return Err(format!("No signature for “{}”.", o.field(0)));
     }
-    Ok(table(&matches.iter().map(|f| (f.0, format!("{}  ({})", f.1, f.2))).collect::<Vec<_>>()))
+    Ok(table(
+        &matches
+            .iter()
+            .map(|f| (f.0, format!("{}  ({})", f.1, f.2)))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 fn timezone(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -1007,7 +1452,10 @@ fn timezone(_: &str, o: &mut Opts) -> Result<Output, String> {
     if key.is_empty() {
         return Ok(super::list(TIMEZONES.iter().copied()));
     }
-    let matches: Vec<&&str> = TIMEZONES.iter().filter(|z| z.to_ascii_lowercase().contains(&key)).collect();
+    let matches: Vec<&&str> = TIMEZONES
+        .iter()
+        .filter(|z| z.to_ascii_lowercase().contains(&key))
+        .collect();
     if matches.is_empty() {
         return Err(format!("No time zone matches “{}”.", o.field(0)));
     }
@@ -1015,127 +1463,338 @@ fn timezone(_: &str, o: &mut Opts) -> Result<Output, String> {
 }
 
 pub const DEVELOPER: &[Tool] = &[
-    tool("web-http-status", "HTTP status code", "What a status code means.", http_status)
-        .form()
-        .fields(&[("Code", "200")]),
-    tool("web-mime", "MIME type", "The media type for an extension, or the extension for a media type.", mime_type)
-        .form()
-        .fields(&[("Extension or media type", "json")]),
-    tool("web-jwt", "Decode a JWT", "Read the header and payload of a JSON web token.", jwt)
-        .text("JSON web token"),
-    tool("web-uuid", "UUID generator", "Random version 4 UUIDs.", uuid)
-        .form()
-        .checks(&["Uppercase"])
-        .slider("How many", 1.0, 20.0, 1.0),
-    tool("web-password", "Password generator", "Random passwords from letters, digits and symbols.", password)
-        .form()
-        .fields(&[("Exclude characters (start with -)", "")])
-        .checks(&["Digits", "Symbols"])
-        .slider("Length", 8.0, 64.0, 16.0),
-    tool("web-cron", "Cron expression", "Checks a five-field cron expression and explains its parts.", cron)
-        .text("Cron expression, such as 0 9 * * 1-5"),
-    tool("web-regex", "Regex tester", "Matches and positions for a regular expression.", regex_test)
-        .fields(&[("Pattern", "\\w+")]),
-    tool("web-curl", "curl to fetch", "Turns a curl command into JavaScript fetch code.", curl)
-        .text("curl command"),
-    tool("web-user-agent", "User agent", "The browser, version and system in a user agent string.", user_agent)
-        .text("User agent string"),
-    tool("web-http-methods", "HTTP methods", "What each request method is for.", methods).form(),
-    tool("web-http-headers", "HTTP headers", "Common request and response headers.", headers).form(),
+    tool(
+        "web-http-status",
+        "HTTP status code",
+        "What a status code means.",
+        http_status,
+    )
+    .form()
+    .fields(&[("Code", "200")]),
+    tool(
+        "web-mime",
+        "MIME type",
+        "The media type for an extension, or the extension for a media type.",
+        mime_type,
+    )
+    .form()
+    .fields(&[("Extension or media type", "json")]),
+    tool(
+        "web-jwt",
+        "Decode a JWT",
+        "Read the header and payload of a JSON web token.",
+        jwt,
+    )
+    .text("JSON web token"),
+    tool(
+        "web-uuid",
+        "UUID generator",
+        "Random version 4 UUIDs.",
+        uuid,
+    )
+    .form()
+    .checks(&["Uppercase"])
+    .slider("How many", 1.0, 20.0, 1.0),
+    tool(
+        "web-password",
+        "Password generator",
+        "Random passwords from letters, digits and symbols.",
+        password,
+    )
+    .form()
+    .fields(&[("Exclude characters (start with -)", "")])
+    .checks(&["Digits", "Symbols"])
+    .slider("Length", 8.0, 64.0, 16.0),
+    tool(
+        "web-cron",
+        "Cron expression",
+        "Checks a five-field cron expression and explains its parts.",
+        cron,
+    )
+    .text("Cron expression, such as 0 9 * * 1-5"),
+    tool(
+        "web-regex",
+        "Regex tester",
+        "Matches and positions for a regular expression.",
+        regex_test,
+    )
+    .fields(&[("Pattern", "\\w+")]),
+    tool(
+        "web-curl",
+        "curl to fetch",
+        "Turns a curl command into JavaScript fetch code.",
+        curl,
+    )
+    .text("curl command"),
+    tool(
+        "web-user-agent",
+        "User agent",
+        "The browser, version and system in a user agent string.",
+        user_agent,
+    )
+    .text("User agent string"),
+    tool(
+        "web-http-methods",
+        "HTTP methods",
+        "What each request method is for.",
+        methods,
+    )
+    .form(),
+    tool(
+        "web-http-headers",
+        "HTTP headers",
+        "Common request and response headers.",
+        headers,
+    )
+    .form(),
 ];
 
 fn methods(_: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(table(&HTTP_METHODS.iter().map(|(m, d)| (*m, (*d).to_owned())).collect::<Vec<_>>()))
+    Ok(table(
+        &HTTP_METHODS
+            .iter()
+            .map(|(m, d)| (*m, (*d).to_owned()))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 fn headers(_: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(table(&HTTP_HEADERS.iter().map(|(h, d)| (*h, (*d).to_owned())).collect::<Vec<_>>()))
+    Ok(table(
+        &HTTP_HEADERS
+            .iter()
+            .map(|(h, d)| (*h, (*d).to_owned()))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 pub const VALIDATE: &[Tool] = &[
-    tool("web-valid-email", "Email validator", "Checks the shape of an email address.", valid_email),
-    tool("web-valid-url", "URL validator", "Checks a web address and its scheme.", valid_url),
-    tool("web-valid-ip", "IP validator", "Checks an IPv4 or IPv6 address.", valid_ip),
-    tool("web-valid-uuid", "UUID validator", "Checks the shape of a UUID.", valid_uuid),
-    tool("web-valid-card", "Card validator", "The Luhn check for card numbers.", valid_card),
-    tool("web-valid-iban", "IBAN validator", "The mod-97 check for IBANs.", valid_iban),
-    tool("web-valid-domain", "Domain validator", "Checks a domain name and its labels.", valid_domain),
-    tool("web-valid-semver", "Semantic version", "Checks a semantic version such as 1.2.3-beta.1.", valid_semver),
-    tool("web-valid-json", "JSON validator", "Checks that text is JSON.", valid_json),
+    tool(
+        "web-valid-email",
+        "Email validator",
+        "Checks the shape of an email address.",
+        valid_email,
+    ),
+    tool(
+        "web-valid-url",
+        "URL validator",
+        "Checks a web address and its scheme.",
+        valid_url,
+    ),
+    tool(
+        "web-valid-ip",
+        "IP validator",
+        "Checks an IPv4 or IPv6 address.",
+        valid_ip,
+    ),
+    tool(
+        "web-valid-uuid",
+        "UUID validator",
+        "Checks the shape of a UUID.",
+        valid_uuid,
+    ),
+    tool(
+        "web-valid-card",
+        "Card validator",
+        "The Luhn check for card numbers.",
+        valid_card,
+    ),
+    tool(
+        "web-valid-iban",
+        "IBAN validator",
+        "The mod-97 check for IBANs.",
+        valid_iban,
+    ),
+    tool(
+        "web-valid-domain",
+        "Domain validator",
+        "Checks a domain name and its labels.",
+        valid_domain,
+    ),
+    tool(
+        "web-valid-semver",
+        "Semantic version",
+        "Checks a semantic version such as 1.2.3-beta.1.",
+        valid_semver,
+    ),
+    tool(
+        "web-valid-json",
+        "JSON validator",
+        "Checks that text is JSON.",
+        valid_json,
+    ),
 ];
 
 pub const WEB: &[Tool] = &[
-    tool("web-meta-tags", "Meta tags", "Title and meta tags in HTML.", meta_tags)
-        .text("HTML"),
-    tool("web-open-graph", "Open Graph tags", "The og: tags in HTML.", open_graph)
-        .text("HTML"),
-    tool("web-sitemap", "Sitemap", "Turns a list of URLs into a sitemap.xml.", sitemap)
-        .text("URLs, one per line"),
-    tool("web-utm", "UTM builder", "Builds campaign URLs for analytics.", utm)
-        .form()
-        .fields(&[
-            ("URL", "https://example.com"),
-            ("Source", "newsletter"),
-            ("Medium", "email"),
-            ("Campaign", "launch"),
-            ("Term", ""),
-            ("Content", ""),
-        ]),
-    tool("web-serp", "Search result preview", "How a title, description and URL look in a search result, with lengths.", serp)
-        .form()
-        .fields(&[
-            ("Title", "Text Utilities"),
-            ("Description", "A pocket knife of small tools for text, data, numbers and more."),
-            ("URL", "https://example.com/textutils"),
-        ]),
-    tool("web-robots", "robots.txt", "Builds a robots.txt file.", robots)
-        .form()
-        .fields(&[
-            ("User-agent", "*"),
-            ("Disallow", "/admin"),
-            ("Allow", ""),
-            ("Sitemap", "https://example.com/sitemap.xml"),
-        ]),
+    tool(
+        "web-meta-tags",
+        "Meta tags",
+        "Title and meta tags in HTML.",
+        meta_tags,
+    )
+    .text("HTML"),
+    tool(
+        "web-open-graph",
+        "Open Graph tags",
+        "The og: tags in HTML.",
+        open_graph,
+    )
+    .text("HTML"),
+    tool(
+        "web-sitemap",
+        "Sitemap",
+        "Turns a list of URLs into a sitemap.xml.",
+        sitemap,
+    )
+    .text("URLs, one per line"),
+    tool(
+        "web-utm",
+        "UTM builder",
+        "Builds campaign URLs for analytics.",
+        utm,
+    )
+    .form()
+    .fields(&[
+        ("URL", "https://example.com"),
+        ("Source", "newsletter"),
+        ("Medium", "email"),
+        ("Campaign", "launch"),
+        ("Term", ""),
+        ("Content", ""),
+    ]),
+    tool(
+        "web-serp",
+        "Search result preview",
+        "How a title, description and URL look in a search result, with lengths.",
+        serp,
+    )
+    .form()
+    .fields(&[
+        ("Title", "Text Utilities"),
+        (
+            "Description",
+            "A pocket knife of small tools for text, data, numbers and more.",
+        ),
+        ("URL", "https://example.com/textutils"),
+    ]),
+    tool(
+        "web-robots",
+        "robots.txt",
+        "Builds a robots.txt file.",
+        robots,
+    )
+    .form()
+    .fields(&[
+        ("User-agent", "*"),
+        ("Disallow", "/admin"),
+        ("Allow", ""),
+        ("Sitemap", "https://example.com/sitemap.xml"),
+    ]),
 ];
 
 pub const NETWORK: &[Tool] = &[
-    tool("web-cidr", "CIDR calculator", "Network, broadcast and host range for an IPv4 prefix.", cidr)
-        .form()
-        .fields(&[("IPv4 address and prefix", "192.168.1.10/24")]),
-    tool("web-ip-convert", "IPv4 converter", "Dotted, integer, hexadecimal and binary forms.", ip_convert)
-        .text("IPv4 address"),
-    tool("web-mac", "MAC address", "Formats a MAC address and reads its OUI.", mac)
-        .text("MAC address"),
-    tool("web-port", "Port lookup", "The service usually found on a port.", port)
-        .form()
-        .fields(&[("Port or service", "443")]),
-    tool("web-chmod", "chmod calculator", "Numeric and symbolic Unix permissions.", chmod)
-        .form()
-        .fields(&[("Mode", "755")]),
+    tool(
+        "web-cidr",
+        "CIDR calculator",
+        "Network, broadcast and host range for an IPv4 prefix.",
+        cidr,
+    )
+    .form()
+    .fields(&[("IPv4 address and prefix", "192.168.1.10/24")]),
+    tool(
+        "web-ip-convert",
+        "IPv4 converter",
+        "Dotted, integer, hexadecimal and binary forms.",
+        ip_convert,
+    )
+    .text("IPv4 address"),
+    tool(
+        "web-mac",
+        "MAC address",
+        "Formats a MAC address and reads its OUI.",
+        mac,
+    )
+    .text("MAC address"),
+    tool(
+        "web-port",
+        "Port lookup",
+        "The service usually found on a port.",
+        port,
+    )
+    .form()
+    .fields(&[("Port or service", "443")]),
+    tool(
+        "web-chmod",
+        "chmod calculator",
+        "Numeric and symbolic Unix permissions.",
+        chmod,
+    )
+    .form()
+    .fields(&[("Mode", "755")]),
 ];
 
 pub const REFERENCE: &[Tool] = &[
-    tool("web-ascii", "ASCII table", "Codes, HTML and UTF-8 for a character, or the printable table.", ascii)
-        .form()
-        .fields(&[("Character or code (empty: all)", "A")]),
-    tool("web-entities", "HTML entities", "Named entities and their code points.", html_entity)
-        .form()
-        .fields(&[("Entity (empty: all)", "amp")]),
-    tool("web-country-codes", "Country codes", "ISO 3166 codes and calling codes.", country_code)
-        .form()
-        .fields(&[("Country, ISO code or calling code", "US")]),
-    tool("web-currencies", "Currency codes", "ISO 4217 currency codes.", currency_code)
-        .form()
-        .fields(&[("Code, name or country", "USD")]),
-    tool("web-file-signatures", "File signatures", "The first bytes of common file types.", file_signature)
-        .form()
-        .fields(&[("Extension", "png")]),
-    tool("web-timezones", "Time zones", "IANA time zone names.", timezone)
-        .form()
-        .fields(&[("Search (empty: all)", "")]),
-    tool("web-status-table", "HTTP status table", "All the status codes in the table.", statuses).form(),
+    tool(
+        "web-ascii",
+        "ASCII table",
+        "Codes, HTML and UTF-8 for a character, or the printable table.",
+        ascii,
+    )
+    .form()
+    .fields(&[("Character or code (empty: all)", "A")]),
+    tool(
+        "web-entities",
+        "HTML entities",
+        "Named entities and their code points.",
+        html_entity,
+    )
+    .form()
+    .fields(&[("Entity (empty: all)", "amp")]),
+    tool(
+        "web-country-codes",
+        "Country codes",
+        "ISO 3166 codes and calling codes.",
+        country_code,
+    )
+    .form()
+    .fields(&[("Country, ISO code or calling code", "US")]),
+    tool(
+        "web-currencies",
+        "Currency codes",
+        "ISO 4217 currency codes.",
+        currency_code,
+    )
+    .form()
+    .fields(&[("Code, name or country", "USD")]),
+    tool(
+        "web-file-signatures",
+        "File signatures",
+        "The first bytes of common file types.",
+        file_signature,
+    )
+    .form()
+    .fields(&[("Extension", "png")]),
+    tool(
+        "web-timezones",
+        "Time zones",
+        "IANA time zone names.",
+        timezone,
+    )
+    .form()
+    .fields(&[("Search (empty: all)", "")]),
+    tool(
+        "web-status-table",
+        "HTTP status table",
+        "All the status codes in the table.",
+        statuses,
+    )
+    .form(),
 ];
 
 fn statuses(_: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(table(&HTTP_STATUS.iter().map(|(code, reason, _)| (*reason, format!("{code} — {reason}"))).collect::<Vec<_>>()))
+    Ok(table(
+        &HTTP_STATUS
+            .iter()
+            .map(|(code, reason, _)| (*reason, format!("{code} — {reason}")))
+            .collect::<Vec<_>>(),
+    ))
 }

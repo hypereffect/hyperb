@@ -24,7 +24,15 @@ pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (if m <= 2 { yoe + era * 400 + 1 } else { yoe + era * 400 }, m, d)
+    (
+        if m <= 2 {
+            yoe + era * 400 + 1
+        } else {
+            yoe + era * 400
+        },
+        m,
+        d,
+    )
 }
 
 pub fn is_leap(y: i64) -> bool {
@@ -40,8 +48,29 @@ pub fn month_days(y: i64, m: i64) -> i64 {
     }
 }
 
-pub const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-pub const WEEKDAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+pub const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+pub const WEEKDAYS: [&str; 7] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
 
 /// 0 for Monday.
 pub fn weekday(days: i64) -> usize {
@@ -53,7 +82,10 @@ fn month_number(name: &str) -> Option<i64> {
     if n.len() < 3 {
         return None;
     }
-    MONTHS.iter().position(|m| m.to_lowercase().starts_with(&n)).map(|i| i as i64 + 1)
+    MONTHS
+        .iter()
+        .position(|m| m.to_lowercase().starts_with(&n))
+        .map(|i| i as i64 + 1)
 }
 
 /// A date and time as seconds since 1970, UTC: ISO dates and times,
@@ -65,8 +97,13 @@ pub fn parse_datetime(s: &str) -> Option<f64> {
         let n: f64 = s.parse().ok()?;
         return Some(if s.len() >= 13 { n / 1000.0 } else { n });
     }
-    let (date, time) = match s.find(['T', ' ']).filter(|&i| s[..i].contains(['-', '/', '.'])) {
-        Some(i) if s[..i].chars().filter(|c| c.is_ascii_digit()).count() >= 4 => (&s[..i], s[i + 1..].trim()),
+    let (date, time) = match s
+        .find(['T', ' '])
+        .filter(|&i| s[..i].contains(['-', '/', '.']))
+    {
+        Some(i) if s[..i].chars().filter(|c| c.is_ascii_digit()).count() >= 4 => {
+            (&s[..i], s[i + 1..].trim())
+        }
         _ => (s, ""),
     };
     let (y, m, d) = parse_date_part(date).or_else(|| {
@@ -77,14 +114,21 @@ pub fn parse_datetime(s: &str) -> Option<f64> {
         return None;
     }
     let mut secs = days_from_civil(y, m, d) as f64 * 86400.0;
-    let time = if parse_date_part(date).is_some() { time } else { "" };
+    let time = if parse_date_part(date).is_some() {
+        time
+    } else {
+        ""
+    };
     if !time.is_empty() {
         let (clock, zone) = split_zone(time);
         let lower = clock.to_lowercase();
         let pm = lower.ends_with("pm");
         let am = lower.ends_with("am");
         let clock = lower.trim_end_matches("pm").trim_end_matches("am").trim();
-        let parts: Vec<f64> = clock.split(':').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+        let parts: Vec<f64> = clock
+            .split(':')
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
         let mut h = *parts.first()?;
         if pm && h < 12.0 {
             h += 12.0;
@@ -92,21 +136,29 @@ pub fn parse_datetime(s: &str) -> Option<f64> {
         if am && h == 12.0 {
             h = 0.0;
         }
-        secs += h * 3600.0 + parts.get(1).unwrap_or(&0.0) * 60.0 + parts.get(2).unwrap_or(&0.0) - zone;
+        secs +=
+            h * 3600.0 + parts.get(1).unwrap_or(&0.0) * 60.0 + parts.get(2).unwrap_or(&0.0) - zone;
     }
     Some(secs)
 }
 
 /// A time and its zone offset in seconds: `12:00Z`, `12:00+02:00`.
 fn split_zone(t: &str) -> (&str, f64) {
-    if let Some(c) = t.strip_suffix('Z').or_else(|| t.strip_suffix(" UTC")).or_else(|| t.strip_suffix("UTC")) {
+    if let Some(c) = t
+        .strip_suffix('Z')
+        .or_else(|| t.strip_suffix(" UTC"))
+        .or_else(|| t.strip_suffix("UTC"))
+    {
         return (c.trim(), 0.0);
     }
     if let Some(i) = t.rfind(['+', '-']).filter(|&i| i > 0) {
         let z = &t[i + 1..].replace(':', "");
         if let (Ok(n), 4) = (z.parse::<f64>(), z.len()) {
             let sign = if t.as_bytes()[i] == b'-' { -1.0 } else { 1.0 };
-            return (&t[..i], sign * ((n / 100.0).floor() * 3600.0 + (n % 100.0) * 60.0));
+            return (
+                &t[..i],
+                sign * ((n / 100.0).floor() * 3600.0 + (n % 100.0) * 60.0),
+            );
         }
     }
     (t, 0.0)
@@ -115,13 +167,25 @@ fn split_zone(t: &str) -> (&str, f64) {
 fn parse_date_part(s: &str) -> Option<(i64, i64, i64)> {
     let s = s.trim().trim_end_matches(',');
     let nums: Vec<&str> = s.split(['-', '/', '.']).collect();
-    if nums.len() == 3 && nums.iter().all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())) {
+    if nums.len() == 3
+        && nums
+            .iter()
+            .all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    {
         let n: Vec<i64> = nums.iter().map(|n| n.parse().unwrap()).collect();
         return Some(if nums[0].len() == 4 {
             (n[0], n[1], n[2])
         } else {
-            let y = if nums[2].len() == 2 { 2000 + n[2] - if n[2] > 69 { 100 } else { 0 } } else { n[2] };
-            if s.contains('/') { (y, n[0], n[1]) } else { (y, n[1], n[0]) }
+            let y = if nums[2].len() == 2 {
+                2000 + n[2] - if n[2] > 69 { 100 } else { 0 }
+            } else {
+                n[2]
+            };
+            if s.contains('/') {
+                (y, n[0], n[1])
+            } else {
+                (y, n[1], n[0])
+            }
         });
     }
     // Words: "March 5, 2024", "5 March 2024", "Tue, 5 Mar 2024".
@@ -148,7 +212,11 @@ pub fn format_unix(secs: f64) -> String {
         let t = rest.round() as i64;
         format!(" {:02}:{:02}:{:02} UTC", t / 3600, t % 3600 / 60, t % 60)
     };
-    format!("{} {d} {} {y}{time}", WEEKDAYS[weekday(days)], MONTHS[m as usize - 1])
+    format!(
+        "{} {d} {} {y}{time}",
+        WEEKDAYS[weekday(days)],
+        MONTHS[m as usize - 1]
+    )
 }
 
 pub fn iso(days: i64) -> String {
@@ -162,7 +230,13 @@ pub fn duration_words(secs: f64) -> String {
         return "forever".into();
     }
     let s = secs.abs();
-    let units = [("year", 365.25 * 86400.0), ("day", 86400.0), ("hour", 3600.0), ("minute", 60.0), ("second", 1.0)];
+    let units = [
+        ("year", 365.25 * 86400.0),
+        ("day", 86400.0),
+        ("hour", 3600.0),
+        ("minute", 60.0),
+        ("second", 1.0),
+    ];
     if s >= 1e6 * 365.25 * 86400.0 {
         return format!("{} years", fmt(s / (365.25 * 86400.0), 0));
     }
@@ -174,7 +248,11 @@ pub fn duration_words(secs: f64) -> String {
     for (name, size) in units {
         let n = (left / size).floor();
         if n >= 1.0 {
-            parts.push(format!("{} {name}{}", fmt(n, 0), if n == 1.0 { "" } else { "s" }));
+            parts.push(format!(
+                "{} {name}{}",
+                fmt(n, 0),
+                if n == 1.0 { "" } else { "s" }
+            ));
             left -= n * size;
         }
         if parts.len() == 2 {
@@ -197,7 +275,8 @@ impl Opts<'_> {
             "" | "today" | "now" => Ok((self.now()? / 1000.0).floor()),
             "tomorrow" => Ok((self.now()? / 1000.0 / 86400.0).floor() * 86400.0 + 86400.0),
             "yesterday" => Ok((self.now()? / 1000.0 / 86400.0).floor() * 86400.0 - 86400.0),
-            _ => parse_datetime(raw).ok_or_else(|| format!("“{raw}” is not a date; write it as 2024-03-05.")),
+            _ => parse_datetime(raw)
+                .ok_or_else(|| format!("“{raw}” is not a date; write it as 2024-03-05.")),
         }
     }
 }
@@ -230,17 +309,44 @@ fn age(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (by, bm, bd) = civil_from_days(born);
     let (ay, ..) = civil_from_days(at);
     let birthday = |y: i64| days_from_civil(y, bm, bd.min(month_days(y, bm)));
-    let next = if birthday(ay) >= at { birthday(ay) } else { birthday(ay + 1) };
+    let next = if birthday(ay) >= at {
+        birthday(ay)
+    } else {
+        birthday(ay + 1)
+    };
     let days = at - born;
     let _ = by;
     Ok(table(&[
-        ("Age", format!("{}, {}, {}", plural(y, "year"), plural(m, "month"), plural(d, "day"))),
+        (
+            "Age",
+            format!(
+                "{}, {}, {}",
+                plural(y, "year"),
+                plural(m, "month"),
+                plural(d, "day")
+            ),
+        ),
         ("In months", fmt((y * 12 + m) as f64, 0)),
-        ("In weeks", format!("{} and {}", fmt((days / 7) as f64, 0), plural(days % 7, "day"))),
+        (
+            "In weeks",
+            format!(
+                "{} and {}",
+                fmt((days / 7) as f64, 0),
+                plural(days % 7, "day")
+            ),
+        ),
         ("In days", fmt(days as f64, 0)),
         ("In hours", fmt(days as f64 * 24.0, 0)),
         ("Born on a", WEEKDAYS[weekday(born)].into()),
-        ("Next birthday", format!("{} ({} away, turning {})", iso(next), plural(next - at, "day"), civil_from_days(next).0 - civil_from_days(born).0)),
+        (
+            "Next birthday",
+            format!(
+                "{} ({} away, turning {})",
+                iso(next),
+                plural(next - at, "day"),
+                civil_from_days(next).0 - civil_from_days(born).0
+            ),
+        ),
     ]))
 }
 
@@ -264,14 +370,35 @@ fn date_diff(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (y, m, d) = ymd_between(lo, hi);
     let days = hi - lo;
     Ok(table(&[
-        ("Difference", format!("{}, {}, {}", plural(y, "year"), plural(m, "month"), plural(d, "day"))),
+        (
+            "Difference",
+            format!(
+                "{}, {}, {}",
+                plural(y, "year"),
+                plural(m, "month"),
+                plural(d, "day")
+            ),
+        ),
         ("Days", fmt(days as f64, 0)),
-        ("Weeks", format!("{} and {}", fmt((days / 7) as f64, 0), plural(days % 7, "day"))),
+        (
+            "Weeks",
+            format!(
+                "{} and {}",
+                fmt((days / 7) as f64, 0),
+                plural(days % 7, "day")
+            ),
+        ),
         ("Months", fmt((y * 12 + m) as f64 + d as f64 / 30.44, 2)),
         ("Years", fmt(days as f64 / 365.2425, 3)),
-        ("Weekdays (Mon–Fri)", fmt(business_days_between(lo, hi, &[], false) as f64, 0)),
+        (
+            "Weekdays (Mon–Fri)",
+            fmt(business_days_between(lo, hi, &[], false) as f64, 0),
+        ),
         ("Hours", fmt(days as f64 * 24.0, 0)),
-        ("Direction", if b >= a { "forward" } else { "backward" }.into()),
+        (
+            "Direction",
+            if b >= a { "forward" } else { "backward" }.into(),
+        ),
     ]))
 }
 
@@ -302,7 +429,10 @@ fn date_add(_: &str, o: &mut Opts) -> Result<Output, String> {
         }
         _ => start + n,
     };
-    Ok(table(&[("Date", iso(result)), ("", format_unix(result as f64 * 86400.0))]))
+    Ok(table(&[
+        ("Date", iso(result)),
+        ("", format_unix(result as f64 * 86400.0)),
+    ]))
 }
 
 fn business_days(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -316,7 +446,11 @@ fn business_days(_: &str, o: &mut Opts) -> Result<Output, String> {
         .split([',', ';'])
         .map(str::trim)
         .filter(|h| !h.is_empty())
-        .map(|h| parse_datetime(h).map(|s| (s / 86400.0).floor() as i64).ok_or_else(|| format!("“{h}” is not a date.")))
+        .map(|h| {
+            parse_datetime(h)
+                .map(|s| (s / 86400.0).floor() as i64)
+                .ok_or_else(|| format!("“{h}” is not a date."))
+        })
         .collect::<Result<_, _>>()?;
     let work = business_days_between(a, b, &holidays, o.check(1));
     let all = (b - a).abs();
@@ -342,7 +476,14 @@ fn day_of_week(_: &str, o: &mut Opts) -> Result<Output, String> {
         ("Day", WEEKDAYS[weekday(d)].into()),
         ("Date", format_unix(d as f64 * 86400.0)),
         ("ISO week", format!("{wy}-W{w:02}")),
-        ("Day of the year", format!("{} of {}", d - days_from_civil(y, 1, 1) + 1, if is_leap(y) { 366 } else { 365 })),
+        (
+            "Day of the year",
+            format!(
+                "{} of {}",
+                d - days_from_civil(y, 1, 1) + 1,
+                if is_leap(y) { 366 } else { 365 }
+            ),
+        ),
         ("Quarter", format!("Q{}", (m - 1) / 3 + 1)),
         ("Leap year", if is_leap(y) { "yes" } else { "no" }.into()),
         ("Days in the month", month_days(y, m).to_string()),
@@ -426,9 +567,21 @@ fn calendar(_: &str, o: &mut Opts) -> Result<Output, String> {
     for m in months {
         let title = format!("{} {y}", MONTHS[m as usize - 1]);
         out.push(format!("{title:^27}"));
-        out.push(if sunday { "Su  Mo  Tu  We  Th  Fr  Sa" } else { "Mo  Tu  We  Th  Fr  Sa  Su" }.trim_end().to_owned());
+        out.push(
+            if sunday {
+                "Su  Mo  Tu  We  Th  Fr  Sa"
+            } else {
+                "Mo  Tu  We  Th  Fr  Sa  Su"
+            }
+            .trim_end()
+            .to_owned(),
+        );
         let first = days_from_civil(y, m, 1);
-        let offset = if sunday { (weekday(first) + 1) % 7 } else { weekday(first) };
+        let offset = if sunday {
+            (weekday(first) + 1) % 7
+        } else {
+            weekday(first)
+        };
         let mut line = "    ".repeat(offset);
         for d in 1..=month_days(y, m) {
             let mark = if first + d - 1 == today { '*' } else { ' ' };
@@ -452,11 +605,29 @@ fn countdown(_: &str, o: &mut Opts) -> Result<Output, String> {
     let left = target - now;
     let days = left.abs() / 86400.0;
     Ok(table(&[
-        (if left >= 0.0 { "Time left" } else { "Time since" }, duration_words(left)),
+        (
+            if left >= 0.0 {
+                "Time left"
+            } else {
+                "Time since"
+            },
+            duration_words(left),
+        ),
         ("Days", fmt(days, 2)),
         ("Hours", fmt(left.abs() / 3600.0, 1)),
         ("Weeks", fmt(days / 7.0, 1)),
-        ("Weekdays", fmt(business_days_between((now / 86400.0).floor() as i64, (target / 86400.0).floor() as i64, &[], false) as f64, 0)),
+        (
+            "Weekdays",
+            fmt(
+                business_days_between(
+                    (now / 86400.0).floor() as i64,
+                    (target / 86400.0).floor() as i64,
+                    &[],
+                    false,
+                ) as f64,
+                0,
+            ),
+        ),
         ("Target", format_unix(target)),
     ]))
 }
@@ -477,7 +648,14 @@ fn unix(_: &str, o: &mut Opts) -> Result<Output, String> {
         return Ok(table(&[
             ("UTC", format_unix(secs)),
             ("ISO 8601", strftime(secs, "%Y-%m-%dT%H:%M:%SZ")),
-            ("Relative", format!("{} {}", duration_words(secs - now), if secs >= now { "from now" } else { "ago" })),
+            (
+                "Relative",
+                format!(
+                    "{} {}",
+                    duration_words(secs - now),
+                    if secs >= now { "from now" } else { "ago" }
+                ),
+            ),
         ]));
     }
     let secs = o.datetime(0)?;
@@ -488,7 +666,10 @@ fn unix(_: &str, o: &mut Opts) -> Result<Output, String> {
     ]))
 }
 
-const ANIMALS: [&str; 12] = ["Rat", "Ox", "Tiger", "Rabbit", "Dragon", "Snake", "Horse", "Goat", "Monkey", "Rooster", "Dog", "Pig"];
+const ANIMALS: [&str; 12] = [
+    "Rat", "Ox", "Tiger", "Rabbit", "Dragon", "Snake", "Horse", "Goat", "Monkey", "Rooster", "Dog",
+    "Pig",
+];
 const ELEMENTS: [&str; 5] = ["Wood", "Fire", "Earth", "Metal", "Water"];
 
 fn chinese_zodiac(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -505,11 +686,25 @@ fn chinese_zodiac(_: &str, o: &mut Opts) -> Result<Output, String> {
 
 pub fn zodiac_sign(m: i64, d: i64) -> &'static str {
     const SIGNS: [(&str, i64, i64); 12] = [
-        ("Capricorn ♑", 1, 19), ("Aquarius ♒", 2, 18), ("Pisces ♓", 3, 20), ("Aries ♈", 4, 19), ("Taurus ♉", 5, 20), ("Gemini ♊", 6, 20),
-        ("Cancer ♋", 7, 22), ("Leo ♌", 8, 22), ("Virgo ♍", 9, 22), ("Libra ♎", 10, 22), ("Scorpio ♏", 11, 21), ("Sagittarius ♐", 12, 21),
+        ("Capricorn ♑", 1, 19),
+        ("Aquarius ♒", 2, 18),
+        ("Pisces ♓", 3, 20),
+        ("Aries ♈", 4, 19),
+        ("Taurus ♉", 5, 20),
+        ("Gemini ♊", 6, 20),
+        ("Cancer ♋", 7, 22),
+        ("Leo ♌", 8, 22),
+        ("Virgo ♍", 9, 22),
+        ("Libra ♎", 10, 22),
+        ("Scorpio ♏", 11, 21),
+        ("Sagittarius ♐", 12, 21),
     ];
     let (name, _, last) = SIGNS[m as usize - 1];
-    if d <= last { name } else { SIGNS[m as usize % 12].0 }
+    if d <= last {
+        name
+    } else {
+        SIGNS[m as usize % 12].0
+    }
 }
 
 fn zodiac(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -524,7 +719,11 @@ fn julian_from_days(days: i64) -> (i64, i64, i64) {
     let d = (4 * c + 3) / 1461;
     let e = c - 1461 * d / 4;
     let m = (5 * e + 2) / 153;
-    (d - 4800 + (m + 3) / 10 - 1 + 1, m + 3 - 12 * (m / 10), e - (153 * m + 2) / 5 + 1)
+    (
+        d - 4800 + (m + 3) / 10 - 1 + 1,
+        m + 3 - 12 * (m / 10),
+        e - (153 * m + 2) / 5 + 1,
+    )
 }
 
 fn julian(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -535,7 +734,10 @@ fn julian(_: &str, o: &mut Opts) -> Result<Output, String> {
         ("Julian day", fmt(jd, 5)),
         ("Julian day number", fmt((jd + 0.5).floor(), 0)),
         ("Modified Julian day", fmt(jd - 2400000.5, 5)),
-        ("Julian calendar date", format!("{d} {} {}", MONTHS[m as usize - 1], y - 1)),
+        (
+            "Julian calendar date",
+            format!("{d} {} {}", MONTHS[m as usize - 1], y - 1),
+        ),
         ("Days since 1970", fmt((t / 86400.0).floor(), 0)),
     ]))
 }
@@ -543,7 +745,20 @@ fn julian(_: &str, o: &mut Opts) -> Result<Output, String> {
 // The tabular Islamic calendar, in days since 1970.
 
 const ISLAMIC_EPOCH: i64 = 227015 - 719163;
-const ISLAMIC_MONTHS: [&str; 12] = ["Muharram", "Safar", "Rabi al-Awwal", "Rabi al-Thani", "Jumada al-Awwal", "Jumada al-Thani", "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhu al-Qadah", "Dhu al-Hijjah"];
+const ISLAMIC_MONTHS: [&str; 12] = [
+    "Muharram",
+    "Safar",
+    "Rabi al-Awwal",
+    "Rabi al-Thani",
+    "Jumada al-Awwal",
+    "Jumada al-Thani",
+    "Rajab",
+    "Sha'ban",
+    "Ramadan",
+    "Shawwal",
+    "Dhu al-Qadah",
+    "Dhu al-Hijjah",
+];
 
 fn from_islamic(y: i64, m: i64, d: i64) -> i64 {
     ISLAMIC_EPOCH - 1 + (y - 1) * 354 + (3 + 11 * y).div_euclid(30) + 29 * (m - 1) + m / 2 + d
@@ -562,17 +777,26 @@ fn islamic(_: &str, o: &mut Opts) -> Result<Output, String> {
         if !(1..=12).contains(&m) || !(1..=30).contains(&d) {
             return Err("An Islamic month goes from 1 to 12, a day from 1 to 30.".into());
         }
-        return Ok(table(&[("Gregorian date", format_unix(from_islamic(y, m, d) as f64 * 86400.0))]));
+        return Ok(table(&[(
+            "Gregorian date",
+            format_unix(from_islamic(y, m, d) as f64 * 86400.0),
+        )]));
     }
     let (y, m, d) = to_islamic(o.date(0)?);
-    Ok(table(&[("Islamic date", format!("{d} {} {y} AH", ISLAMIC_MONTHS[m as usize - 1]))])
-        .note("The tabular calendar; the observed one may differ by a day or two."))
+    Ok(table(&[(
+        "Islamic date",
+        format!("{d} {} {y} AH", ISLAMIC_MONTHS[m as usize - 1]),
+    )])
+    .note("The tabular calendar; the observed one may differ by a day or two."))
 }
 
 // The Hebrew calendar, after Reingold and Dershowitz, in days since 1970.
 
 const HEBREW_EPOCH: i64 = -1373427 - 719163;
-const HEBREW_MONTHS: [&str; 13] = ["Nisan", "Iyyar", "Sivan", "Tammuz", "Av", "Elul", "Tishrei", "Cheshvan", "Kislev", "Tevet", "Shevat", "Adar", "Adar II"];
+const HEBREW_MONTHS: [&str; 13] = [
+    "Nisan", "Iyyar", "Sivan", "Tammuz", "Av", "Elul", "Tishrei", "Cheshvan", "Kislev", "Tevet",
+    "Shevat", "Adar", "Adar II",
+];
 
 fn hebrew_leap(y: i64) -> bool {
     (7 * y + 1).rem_euclid(19) < 7
@@ -582,12 +806,26 @@ fn hebrew_elapsed(y: i64) -> i64 {
     let months = (235 * y - 234).div_euclid(19);
     let parts = 12084 + 13753 * months;
     let day = months * 29 + parts.div_euclid(25920);
-    if (3 * (day + 1)).rem_euclid(7) < 3 { day + 1 } else { day }
+    if (3 * (day + 1)).rem_euclid(7) < 3 {
+        day + 1
+    } else {
+        day
+    }
 }
 
 fn hebrew_new_year(y: i64) -> i64 {
-    let (a, b, c) = (hebrew_elapsed(y - 1), hebrew_elapsed(y), hebrew_elapsed(y + 1));
-    let delay = if c - b == 356 { 2 } else if b - a == 382 { 1 } else { 0 };
+    let (a, b, c) = (
+        hebrew_elapsed(y - 1),
+        hebrew_elapsed(y),
+        hebrew_elapsed(y + 1),
+    );
+    let delay = if c - b == 356 {
+        2
+    } else if b - a == 382 {
+        1
+    } else {
+        0
+    };
     HEBREW_EPOCH + b + delay
 }
 
@@ -629,8 +867,13 @@ fn to_hebrew(days: i64) -> (i64, i64, i64) {
 
 fn hebrew(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (y, m, d) = to_hebrew(o.date(0)?);
-    let name = if m == 12 && hebrew_leap(y) { "Adar I" } else { HEBREW_MONTHS[m as usize - 1] };
-    Ok(table(&[("Hebrew date", format!("{d} {name} {y}"))]).note("Hebrew days begin at sunset the evening before."))
+    let name = if m == 12 && hebrew_leap(y) {
+        "Adar I"
+    } else {
+        HEBREW_MONTHS[m as usize - 1]
+    };
+    Ok(table(&[("Hebrew date", format!("{d} {name} {y}"))])
+        .note("Hebrew days begin at sunset the evening before."))
 }
 
 /// The moon's age in days, and the fraction lit, at a time.
@@ -645,7 +888,16 @@ pub fn moon(secs: f64) -> (f64, f64) {
 fn moon_phase(_: &str, o: &mut Opts) -> Result<Output, String> {
     let t = o.datetime(0)?;
     let (age, lit) = moon(t);
-    let names = ["New moon 🌑", "Waxing crescent 🌒", "First quarter 🌓", "Waxing gibbous 🌔", "Full moon 🌕", "Waning gibbous 🌖", "Last quarter 🌗", "Waning crescent 🌘"];
+    let names = [
+        "New moon 🌑",
+        "Waxing crescent 🌒",
+        "First quarter 🌓",
+        "Waxing gibbous 🌔",
+        "Full moon 🌕",
+        "Waning gibbous 🌖",
+        "Last quarter 🌗",
+        "Waning crescent 🌘",
+    ];
     let phase = names[((age / 29.530588853 * 8.0 + 0.5).floor() as usize) % 8];
     let next = |target: f64| {
         let wait = (target - age).rem_euclid(29.530588853);
@@ -667,12 +919,17 @@ pub fn sun_times(days: i64, lat: f64, lon: f64, depression: f64) -> (Option<(f64
     let jd = days as f64 + 2440587.5 + 0.5;
     let n = jd - 2451545.0;
     let mean_noon = n - lon / 360.0;
-    let m = (357.5291 + 0.98560028 * mean_noon).rem_euclid(360.0).to_radians();
+    let m = (357.5291 + 0.98560028 * mean_noon)
+        .rem_euclid(360.0)
+        .to_radians();
     let c = 1.9148 * m.sin() + 0.02 * (2.0 * m).sin() + 0.0003 * (3.0 * m).sin();
-    let lambda = (m.to_degrees() + c + 180.0 + 102.9372).rem_euclid(360.0).to_radians();
+    let lambda = (m.to_degrees() + c + 180.0 + 102.9372)
+        .rem_euclid(360.0)
+        .to_radians();
     let transit = 2451545.0 + mean_noon + 0.0053 * m.sin() - 0.0069 * (2.0 * lambda).sin();
     let decl = (lambda.sin() * 23.4397f64.to_radians().sin()).asin();
-    let cos_h = ((-depression).to_radians().sin() - lat.to_radians().sin() * decl.sin()) / (lat.to_radians().cos() * decl.cos());
+    let cos_h = ((-depression).to_radians().sin() - lat.to_radians().sin() * decl.sin())
+        / (lat.to_radians().cos() * decl.cos());
     let noon = (transit - 2440587.5 - days as f64) * 24.0;
     if !(-1.0..=1.0).contains(&cos_h) {
         return (None, noon);
@@ -702,7 +959,22 @@ fn sunrise(_: &str, o: &mut Opts) -> Result<Output, String> {
             rows.push(("Sunset", at(set)));
             rows.push(("Day length", duration_words((set - rise) * 3600.0)));
         }
-        None => rows.push(("Sun", if lat * (if (80..270).contains(&(day.rem_euclid(365))) { 1.0 } else { -1.0 }) > 0.0 { "up all day" } else { "down all day" }.into())),
+        None => rows.push((
+            "Sun",
+            if lat
+                * (if (80..270).contains(&(day.rem_euclid(365))) {
+                    1.0
+                } else {
+                    -1.0
+                })
+                > 0.0
+            {
+                "up all day"
+            } else {
+                "down all day"
+            }
+            .into(),
+        )),
     }
     rows.push(("Solar noon", at(noon)));
     if let (Some((dawn, dusk)), _) = sun_times(day, lat, lon, 6.0) {
@@ -710,8 +982,14 @@ fn sunrise(_: &str, o: &mut Opts) -> Result<Output, String> {
         rows.push(("Civil dusk", at(dusk)));
     }
     if let (Some((a, b)), _) = sun_times(day, lat, lon, -6.0) {
-        rows.push(("Morning golden hour", format!("{} – {}", at(sun.map_or(a, |s| s.0)), at(a))));
-        rows.push(("Evening golden hour", format!("{} – {}", at(b), at(sun.map_or(b, |s| s.1)))));
+        rows.push((
+            "Morning golden hour",
+            format!("{} – {}", at(sun.map_or(a, |s| s.0)), at(a)),
+        ));
+        rows.push((
+            "Evening golden hour",
+            format!("{} – {}", at(b), at(sun.map_or(b, |s| s.1))),
+        ));
     }
     rows.push(("", format!("Times at UTC{:+}.", tz)));
     Ok(table(&rows))
@@ -727,7 +1005,12 @@ fn ics(_: &str, o: &mut Opts) -> Result<Output, String> {
         return Err("The end is before the start.".into());
     }
     let stamp = |t: f64| strftime(t, "%Y%m%dT%H%M%SZ");
-    let esc = |s: &str| s.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace('\n', "\\n");
+    let esc = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace(';', "\\;")
+            .replace(',', "\\,")
+            .replace('\n', "\\n")
+    };
     let uid = format!("{}-{}@hyperb", stamp(start), o.rng.next() % 1_000_000);
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_owned(),
@@ -755,7 +1038,10 @@ fn ics(_: &str, o: &mut Opts) -> Result<Output, String> {
 
 fn ics_view(text: &str, _: &mut Opts) -> Result<Output, String> {
     // Unfold continuation lines first.
-    let unfolded = text.replace("\r\n", "\n").replace("\n ", "").replace("\n\t", "");
+    let unfolded = text
+        .replace("\r\n", "\n")
+        .replace("\n ", "")
+        .replace("\n\t", "");
     let mut events = Vec::new();
     let mut cur: Vec<(String, String)> = Vec::new();
     let mut inside = false;
@@ -772,7 +1058,12 @@ fn ics_view(text: &str, _: &mut Opts) -> Result<Output, String> {
             l if inside => {
                 if let Some((k, v)) = l.split_once(':') {
                     let k = k.split(';').next().unwrap_or(k).to_owned();
-                    cur.push((k, v.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";")));
+                    cur.push((
+                        k,
+                        v.replace("\\n", "\n")
+                            .replace("\\,", ",")
+                            .replace("\\;", ";"),
+                    ));
                 }
             }
             _ => {}
@@ -788,13 +1079,35 @@ fn ics_view(text: &str, _: &mut Opts) -> Result<Output, String> {
             return v.to_owned();
         }
         let date = format!("{}-{}-{}", &d[..4], &d[4..6], &d[6..]);
-        if t.len() >= 4 { format!("{date} {}:{}{}", &t[..2], &t[2..4], if t.ends_with('Z') { " UTC" } else { "" }) } else { date }
+        if t.len() >= 4 {
+            format!(
+                "{date} {}:{}{}",
+                &t[..2],
+                &t[2..4],
+                if t.ends_with('Z') { " UTC" } else { "" }
+            )
+        } else {
+            date
+        }
     };
-    events.sort_by_key(|e| e.iter().find(|(k, _)| k == "DTSTART").map(|(_, v)| v.clone()));
+    events.sort_by_key(|e| {
+        e.iter()
+            .find(|(k, _)| k == "DTSTART")
+            .map(|(_, v)| v.clone())
+    });
     let rows = events.iter().map(|e| {
-        let get = |k: &str| e.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str()).unwrap_or("");
+        let get = |k: &str| {
+            e.iter()
+                .find(|(kk, _)| kk == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        };
         vec![
-            if get("SUMMARY").is_empty() { "(no title)".to_owned() } else { get("SUMMARY").to_owned() },
+            if get("SUMMARY").is_empty() {
+                "(no title)".to_owned()
+            } else {
+                get("SUMMARY").to_owned()
+            },
             format!("{} → {}", when(get("DTSTART")), when(get("DTEND"))),
             get("LOCATION").to_owned(),
             get("RRULE").to_owned(),
@@ -809,7 +1122,11 @@ fn parse_duration(s: &str) -> Option<f64> {
     let s = s.trim();
     if s.contains(':') {
         let neg = s.starts_with('-');
-        let parts: Vec<f64> = s.trim_start_matches('-').split(':').map(|p| p.trim().parse().ok()).collect::<Option<_>>()?;
+        let parts: Vec<f64> = s
+            .trim_start_matches('-')
+            .split(':')
+            .map(|p| p.trim().parse().ok())
+            .collect::<Option<_>>()?;
         let v = match parts.as_slice() {
             [h, m] => h * 3600.0 + m * 60.0,
             [h, m, sec] => h * 3600.0 + m * 60.0 + sec,
@@ -817,7 +1134,10 @@ fn parse_duration(s: &str) -> Option<f64> {
         };
         return Some(if neg { -v } else { v });
     }
-    let re = regex_lite::Regex::new(r"(?i)(-?[\d.]+)\s*(d|h|m|s|days?|hours?|hrs?|min(?:ute)?s?|sec(?:ond)?s?)").unwrap();
+    let re = regex_lite::Regex::new(
+        r"(?i)(-?[\d.]+)\s*(d|h|m|s|days?|hours?|hrs?|min(?:ute)?s?|sec(?:ond)?s?)",
+    )
+    .unwrap();
     let mut total = 0.0;
     let mut any = false;
     for c in re.captures_iter(s) {
@@ -841,12 +1161,17 @@ fn time_calc(text: &str, o: &mut Opts) -> Result<Output, String> {
             Some(r) if !r.contains(':') || o.mode == "sum" => (-1.0, r),
             _ => (1.0, l.trim_start_matches('+')),
         };
-        total += sign * parse_duration(l).ok_or_else(|| format!("“{l}” is not a duration such as 1:30 or 2h 15m."))?;
+        total += sign
+            * parse_duration(l)
+                .ok_or_else(|| format!("“{l}” is not a duration such as 1:30 or 2h 15m."))?;
     }
     let t = total.abs().round() as i64;
     let sign = if total < 0.0 { "-" } else { "" };
     Ok(table(&[
-        ("Total", format!("{sign}{}:{:02}:{:02}", t / 3600, t % 3600 / 60, t % 60)),
+        (
+            "Total",
+            format!("{sign}{}:{:02}:{:02}", t / 3600, t % 3600 / 60, t % 60),
+        ),
         ("In words", duration_words(total)),
         ("Hours", fmt(total / 3600.0, 4)),
         ("Minutes", fmt(total / 60.0, 2)),
@@ -855,74 +1180,232 @@ fn time_calc(text: &str, o: &mut Opts) -> Result<Output, String> {
 }
 
 pub const DATES: &[Tool] = &[
-    tool("age", "Age calculator", "Age in years, months and days, and the next birthday.", age)
-        .form()
-        .fields(&[("Birth date", "1990-05-15"), ("On (empty: today)", "")]),
-    tool("date-diff", "Date difference", "The time between two dates in days, weeks, months and years.", date_diff)
-        .form()
-        .fields(&[("From", "2024-01-01"), ("To (empty: today)", "")])
-        .checks(&["Count the end date too"]),
-    tool("date-add", "Date calculator", "Adds days, weeks, months, years or business days to a date.", date_add)
-        .form()
-        .fields(&[("Date (empty: today)", ""), ("How many", "90")])
-        .selects(&[
-            ("Unit", &[("days", "Days"), ("weeks", "Weeks"), ("months", "Months"), ("years", "Years"), ("business", "Business days")]),
-            ("Operation", &[("add", "Add"), ("subtract", "Subtract")]),
-        ]),
-    tool("business-days", "Business days", "Working days between two dates, without weekends and holidays.", business_days)
-        .form()
-        .fields(&[("From", "2024-12-01"), ("To", "2024-12-31"), ("Holidays (dates, comma separated)", "2024-12-25, 2024-12-26")])
-        .checks(&["Count the end date too", "Saturdays are working days"]),
-    tool("day-of-week", "Day of the week", "The weekday, ISO week, day of the year and quarter of a date.", day_of_week)
-        .form()
-        .fields(&[("Date (empty: today)", "")]),
-    tool("date-format", "Date formatter", "A date in ISO, RFC 2822, US, European and other formats, or your own %Y-%m-%d pattern.", date_format)
-        .form()
-        .fields(&[("Date and time (empty: now)", ""), ("Pattern (%Y %m %d %H %M %S %B %A…)", "%A %e %B %Y")]),
-    tool("calendar", "Calendar", "A month or a year as a calendar; today is marked with *.", calendar)
-        .form()
-        .fields(&[("Year (empty: this one)", ""), ("Month (empty: this one)", "")])
-        .selects(&[("Show", &[("month", "A month"), ("year", "The whole year")])])
-        .checks(&["Weeks start on Sunday"]),
-    tool("countdown", "Event countdown", "The time left until an event, or since.", countdown)
-        .form()
-        .fields(&[("Event date and time", "2030-01-01 00:00")]),
-    tool("unix-time", "Unix time converter", "Unix timestamps to dates, and dates to timestamps.", unix)
-        .form()
-        .fields(&[("Timestamp or date (empty: now)", "1700000000")])
-        .selects(&[("Timestamp unit", &[("auto", "Guess"), ("s", "Seconds"), ("ms", "Milliseconds"), ("us", "Microseconds")])]),
-    tool("time-calc", "Time calculator", "Adds and subtracts durations such as 1:30, 2h 15m or -45m.", time_calc)
-        .text("One duration per line (a leading - subtracts)")
-        .selects(&[("Lines starting with -", &[("subtract", "Subtract"), ("sum", "Subtract too")])]),
-    tool("chinese-zodiac", "Chinese zodiac", "The animal, element and polarity of a year.", chinese_zodiac)
-        .form()
-        .fields(&[("Year", "2024")]),
-    tool("zodiac", "Zodiac sign", "The western zodiac sign of a birth date.", zodiac).form().fields(&[("Birth date", "1990-05-15")]),
-    tool("julian", "Julian date", "The Julian day number, modified Julian day and Julian calendar date.", julian)
-        .form()
-        .fields(&[("Date and time (empty: now)", "")]),
-    tool("islamic", "Islamic calendar", "Gregorian dates in the tabular Hijri calendar, and back.", islamic)
-        .form()
-        .fields(&[("Gregorian date (empty: today)", ""), ("Hijri year", "1446"), ("Hijri month", "9"), ("Hijri day", "1")])
-        .selects(&[("Convert", &[("to-islamic", "Gregorian to Hijri"), ("to-gregorian", "Hijri to Gregorian")])]),
-    tool("hebrew", "Hebrew calendar", "The Hebrew date of a Gregorian date.", hebrew).form().fields(&[("Date (empty: today)", "")]),
-    tool("moon", "Moon phase", "The moon's phase, how much is lit, and the next full and new moons.", moon_phase)
-        .form()
-        .fields(&[("Date (empty: now)", "")]),
-    tool("sunrise", "Sunrise and sunset", "Sunrise, sunset, day length, twilight and golden hours anywhere.", sunrise)
-        .form()
-        .fields(&[("Latitude", "48.8566"), ("Longitude", "2.3522"), ("Date (empty: today)", ""), ("UTC offset (hours)", "1")]),
-    tool("ics", "ICS file generator", "A calendar event (.ics) to import in any calendar.", ics)
-        .form()
-        .fields(&[
-            ("Title", "Team meeting"),
-            ("Start (UTC)", "2030-01-15 09:00"),
-            ("End (UTC, empty: an hour later)", ""),
-            ("Location", "Room 4"),
-            ("Description", ""),
-        ])
-        .selects(&[("Repeats", &[("none", "Never"), ("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly"), ("yearly", "Yearly")])]),
-    tool("ics-view", "ICS viewer", "The events of an .ics calendar file, in order.", ics_view).text("ICS file"),
+    tool(
+        "age",
+        "Age calculator",
+        "Age in years, months and days, and the next birthday.",
+        age,
+    )
+    .form()
+    .fields(&[("Birth date", "1990-05-15"), ("On (empty: today)", "")]),
+    tool(
+        "date-diff",
+        "Date difference",
+        "The time between two dates in days, weeks, months and years.",
+        date_diff,
+    )
+    .form()
+    .fields(&[("From", "2024-01-01"), ("To (empty: today)", "")])
+    .checks(&["Count the end date too"]),
+    tool(
+        "date-add",
+        "Date calculator",
+        "Adds days, weeks, months, years or business days to a date.",
+        date_add,
+    )
+    .form()
+    .fields(&[("Date (empty: today)", ""), ("How many", "90")])
+    .selects(&[
+        (
+            "Unit",
+            &[
+                ("days", "Days"),
+                ("weeks", "Weeks"),
+                ("months", "Months"),
+                ("years", "Years"),
+                ("business", "Business days"),
+            ],
+        ),
+        ("Operation", &[("add", "Add"), ("subtract", "Subtract")]),
+    ]),
+    tool(
+        "business-days",
+        "Business days",
+        "Working days between two dates, without weekends and holidays.",
+        business_days,
+    )
+    .form()
+    .fields(&[
+        ("From", "2024-12-01"),
+        ("To", "2024-12-31"),
+        (
+            "Holidays (dates, comma separated)",
+            "2024-12-25, 2024-12-26",
+        ),
+    ])
+    .checks(&["Count the end date too", "Saturdays are working days"]),
+    tool(
+        "day-of-week",
+        "Day of the week",
+        "The weekday, ISO week, day of the year and quarter of a date.",
+        day_of_week,
+    )
+    .form()
+    .fields(&[("Date (empty: today)", "")]),
+    tool(
+        "date-format",
+        "Date formatter",
+        "A date in ISO, RFC 2822, US, European and other formats, or your own %Y-%m-%d pattern.",
+        date_format,
+    )
+    .form()
+    .fields(&[
+        ("Date and time (empty: now)", ""),
+        ("Pattern (%Y %m %d %H %M %S %B %A…)", "%A %e %B %Y"),
+    ]),
+    tool(
+        "calendar",
+        "Calendar",
+        "A month or a year as a calendar; today is marked with *.",
+        calendar,
+    )
+    .form()
+    .fields(&[
+        ("Year (empty: this one)", ""),
+        ("Month (empty: this one)", ""),
+    ])
+    .selects(&[("Show", &[("month", "A month"), ("year", "The whole year")])])
+    .checks(&["Weeks start on Sunday"]),
+    tool(
+        "countdown",
+        "Event countdown",
+        "The time left until an event, or since.",
+        countdown,
+    )
+    .form()
+    .fields(&[("Event date and time", "2030-01-01 00:00")]),
+    tool(
+        "unix-time",
+        "Unix time converter",
+        "Unix timestamps to dates, and dates to timestamps.",
+        unix,
+    )
+    .form()
+    .fields(&[("Timestamp or date (empty: now)", "1700000000")])
+    .selects(&[(
+        "Timestamp unit",
+        &[
+            ("auto", "Guess"),
+            ("s", "Seconds"),
+            ("ms", "Milliseconds"),
+            ("us", "Microseconds"),
+        ],
+    )]),
+    tool(
+        "time-calc",
+        "Time calculator",
+        "Adds and subtracts durations such as 1:30, 2h 15m or -45m.",
+        time_calc,
+    )
+    .text("One duration per line (a leading - subtracts)")
+    .selects(&[(
+        "Lines starting with -",
+        &[("subtract", "Subtract"), ("sum", "Subtract too")],
+    )]),
+    tool(
+        "chinese-zodiac",
+        "Chinese zodiac",
+        "The animal, element and polarity of a year.",
+        chinese_zodiac,
+    )
+    .form()
+    .fields(&[("Year", "2024")]),
+    tool(
+        "zodiac",
+        "Zodiac sign",
+        "The western zodiac sign of a birth date.",
+        zodiac,
+    )
+    .form()
+    .fields(&[("Birth date", "1990-05-15")]),
+    tool(
+        "julian",
+        "Julian date",
+        "The Julian day number, modified Julian day and Julian calendar date.",
+        julian,
+    )
+    .form()
+    .fields(&[("Date and time (empty: now)", "")]),
+    tool(
+        "islamic",
+        "Islamic calendar",
+        "Gregorian dates in the tabular Hijri calendar, and back.",
+        islamic,
+    )
+    .form()
+    .fields(&[
+        ("Gregorian date (empty: today)", ""),
+        ("Hijri year", "1446"),
+        ("Hijri month", "9"),
+        ("Hijri day", "1"),
+    ])
+    .selects(&[(
+        "Convert",
+        &[
+            ("to-islamic", "Gregorian to Hijri"),
+            ("to-gregorian", "Hijri to Gregorian"),
+        ],
+    )]),
+    tool(
+        "hebrew",
+        "Hebrew calendar",
+        "The Hebrew date of a Gregorian date.",
+        hebrew,
+    )
+    .form()
+    .fields(&[("Date (empty: today)", "")]),
+    tool(
+        "moon",
+        "Moon phase",
+        "The moon's phase, how much is lit, and the next full and new moons.",
+        moon_phase,
+    )
+    .form()
+    .fields(&[("Date (empty: now)", "")]),
+    tool(
+        "sunrise",
+        "Sunrise and sunset",
+        "Sunrise, sunset, day length, twilight and golden hours anywhere.",
+        sunrise,
+    )
+    .form()
+    .fields(&[
+        ("Latitude", "48.8566"),
+        ("Longitude", "2.3522"),
+        ("Date (empty: today)", ""),
+        ("UTC offset (hours)", "1"),
+    ]),
+    tool(
+        "ics",
+        "ICS file generator",
+        "A calendar event (.ics) to import in any calendar.",
+        ics,
+    )
+    .form()
+    .fields(&[
+        ("Title", "Team meeting"),
+        ("Start (UTC)", "2030-01-15 09:00"),
+        ("End (UTC, empty: an hour later)", ""),
+        ("Location", "Room 4"),
+        ("Description", ""),
+    ])
+    .selects(&[(
+        "Repeats",
+        &[
+            ("none", "Never"),
+            ("daily", "Daily"),
+            ("weekly", "Weekly"),
+            ("monthly", "Monthly"),
+            ("yearly", "Yearly"),
+        ],
+    )]),
+    tool(
+        "ics-view",
+        "ICS viewer",
+        "The events of an .ics calendar file, in order.",
+        ics_view,
+    )
+    .text("ICS file"),
 ];
 
 #[cfg(test)]
@@ -966,7 +1449,12 @@ mod tests {
         assert_eq!(parse_duration("1:30"), Some(5400.0));
         assert_eq!(parse_duration("2h 15m"), Some(8100.0));
         assert_eq!(duration_words(90061.0), "1 day, 1 hour");
-        let (rise, set) = sun_times(days_from_civil(2024, 6, 21), 51.5, 0.0, 0.833).0.unwrap();
-        assert_eq!((clock(rise + 1.0), clock(set + 1.0)), ("04:43".to_owned(), "21:21".to_owned()));
+        let (rise, set) = sun_times(days_from_civil(2024, 6, 21), 51.5, 0.0, 0.833)
+            .0
+            .unwrap();
+        assert_eq!(
+            (clock(rise + 1.0), clock(set + 1.0)),
+            ("04:43".to_owned(), "21:21".to_owned())
+        );
     }
 }

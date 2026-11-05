@@ -42,7 +42,9 @@ pub fn case(text: &str, o: &mut Opts) -> Result<Output, String> {
     let capitalize = |w: &str| {
         let mut c = w.chars();
         c.next().map_or(String::new(), |f| {
-            f.to_uppercase().chain(c.flat_map(char::to_lowercase)).collect()
+            f.to_uppercase()
+                .chain(c.flat_map(char::to_lowercase))
+                .collect()
         })
     };
     let joined = |sep: &str, f: &dyn Fn(usize, &str) -> String| {
@@ -69,10 +71,8 @@ pub fn case(text: &str, o: &mut Opts) -> Result<Output, String> {
                     start = false;
                 } else {
                     out.extend(c.to_lowercase());
-                    start = start && !c.is_alphanumeric()
-                        || c.is_whitespace()
-                        || c == '-'
-                        || c == '"';
+                    start =
+                        start && !c.is_alphanumeric() || c.is_whitespace() || c == '-' || c == '"';
                 }
             }
             out
@@ -121,7 +121,11 @@ pub fn case(text: &str, o: &mut Opts) -> Result<Output, String> {
             })
             .collect(),
         "camel" => joined("", &|i, w| {
-            if i == 0 { w.to_lowercase() } else { capitalize(w) }
+            if i == 0 {
+                w.to_lowercase()
+            } else {
+                capitalize(w)
+            }
         }),
         "pascal" => joined("", &|_, w| capitalize(w)),
         "snake" => joined("_", &|_, w| w.to_lowercase()),
@@ -157,10 +161,14 @@ pub fn remove_accents(text: &str, _: &mut Opts) -> Result<Output, String> {
     Ok(unaccented(text).into())
 }
 
+/// Any script as ASCII: accented letters, Cyrillic, Greek, kana and Han.
+pub fn ascii(text: &str, _: &mut Opts) -> Result<Output, String> {
+    Ok(deunicode::deunicode(text).into())
+}
+
 /// `text` without accents and diacritics.
 pub fn unaccented(text: &str) -> String {
-    text
-        .nfd()
+    text.nfd()
         .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
         .flat_map(|c| {
             // Letters that are not a base letter and a mark.
@@ -200,19 +208,39 @@ pub fn duplicate_keywords(text: &str, o: &mut Opts) -> Result<Output, String> {
     let sep = separator(o.mode);
     let mut seen = HashSet::new();
     let kept: Vec<&str> = text
-        .split(|c: char| if sep == "," { c == ',' } else { c.is_whitespace() && (sep == " " || c == '\n') })
+        .split(|c: char| {
+            if sep == "," {
+                c == ','
+            } else {
+                c.is_whitespace() && (sep == " " || c == '\n')
+            }
+        })
         .map(str::trim)
         .filter(|k| !k.is_empty())
-        .filter(|k| seen.insert(if o.flag { k.to_lowercase() } else { k.to_string() }))
+        .filter(|k| {
+            seen.insert(if o.flag {
+                k.to_lowercase()
+            } else {
+                k.to_string()
+            })
+        })
         .collect();
-    Ok(super::snippet(kept.join(if sep == "," { ", " } else { sep })))
+    Ok(super::snippet(kept.join(if sep == "," {
+        ", "
+    } else {
+        sep
+    })))
 }
 
 pub fn duplicate_lines(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut seen = HashSet::new();
     let key = |l: &str| {
         let l = l.trim();
-        if o.flag { l.to_lowercase() } else { l.to_owned() }
+        if o.flag {
+            l.to_lowercase()
+        } else {
+            l.to_owned()
+        }
     };
     let kept: Vec<&str> = match o.mode {
         "all" => {
@@ -250,11 +278,15 @@ fn tidy(text: &str) -> String {
 }
 
 pub fn remove_emojis(text: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(super::snippet(tidy(&text.chars().filter(|c| !is_emoji(*c)).collect::<String>())))
+    Ok(super::snippet(tidy(
+        &text.chars().filter(|c| !is_emoji(*c)).collect::<String>(),
+    )))
 }
 
 pub fn remove_empty_lines(text: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(super::snippet(lines(text.lines().filter(|l| !l.trim().is_empty()))))
+    Ok(super::snippet(lines(
+        text.lines().filter(|l| !l.trim().is_empty()),
+    )))
 }
 
 pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -280,25 +312,28 @@ pub fn remove_extra_spaces(text: &str, o: &mut Opts) -> Result<Output, String> {
         }
         return Ok(super::snippet(out));
     }
-    Ok(super::snippet(text
-        .lines()
-        .map(|l| {
-            let mut out = String::new();
-            for word in l.split([' ', '\t', '\u{a0}']).filter(|w| !w.is_empty()) {
-                // No space before punctuation.
-                if !out.is_empty() && !word.starts_with([',', '.', ';', ':', '!', '?', ')']) {
-                    out.push(' ');
+    Ok(super::snippet(
+        text.lines()
+            .map(|l| {
+                let mut out = String::new();
+                for word in l.split([' ', '\t', '\u{a0}']).filter(|w| !w.is_empty()) {
+                    // No space before punctuation.
+                    if !out.is_empty() && !word.starts_with([',', '.', ';', ':', '!', '?', ')']) {
+                        out.push(' ');
+                    }
+                    out.push_str(word);
                 }
-                out.push_str(word);
-            }
-            out
-        })
-        .collect::<Vec<_>>()
-        .join("\n")))
+                out
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ))
 }
 
 pub fn remove_hashtags(text: &str, _: &mut Opts) -> Result<Output, String> {
-    Ok(super::snippet(tidy(&regex(r"(^|\s)#\w+").replace_all(text, "$1"))))
+    Ok(super::snippet(tidy(
+        &regex(r"(^|\s)#\w+").replace_all(text, "$1"),
+    )))
 }
 
 pub fn remove_line_breaks(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -321,7 +356,11 @@ pub fn lines_containing(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.first.is_empty() {
         return Err("Type the text the lines should contain.".into());
     }
-    let needle = if o.flag { o.first.to_lowercase() } else { o.first.to_owned() };
+    let needle = if o.flag {
+        o.first.to_lowercase()
+    } else {
+        o.first.to_owned()
+    };
     let keep = o.mode == "keep";
     Ok(super::snippet(lines(text.lines().filter(|l| {
         let found = if o.flag {
@@ -335,9 +374,10 @@ pub fn lines_containing(text: &str, o: &mut Opts) -> Result<Output, String> {
 
 pub fn reverse(text: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(super::snippet(match o.mode {
-        "words" => lines(text.lines().map(|l| {
-            l.split_whitespace().rev().collect::<Vec<_>>().join(" ")
-        })),
+        "words" => lines(
+            text.lines()
+                .map(|l| l.split_whitespace().rev().collect::<Vec<_>>().join(" ")),
+        ),
         "lines" => lines(text.lines().rev()),
         "each" => lines(text.lines().map(|l| {
             l.split_whitespace()
@@ -351,7 +391,13 @@ pub fn reverse(text: &str, o: &mut Opts) -> Result<Output, String> {
 
 pub fn sort_lines(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut v: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    let key = |l: &str| if o.flag { l.to_lowercase() } else { l.to_owned() };
+    let key = |l: &str| {
+        if o.flag {
+            l.to_lowercase()
+        } else {
+            l.to_owned()
+        }
+    };
     match o.mode {
         "desc" => v.sort_by_key(|l| std::cmp::Reverse(key(l))),
         "length" => v.sort_by_key(|l| (l.chars().count(), key(l))),
@@ -382,31 +428,54 @@ pub fn counter(text: &str, _: &mut Opts) -> Result<Output, String> {
     let reading = (all.len() as f64 / 238.0 * 60.0).round() as u64;
     let rows = [
         ("Characters", text.chars().count().to_string()),
-        ("Characters without spaces", text.chars().filter(|c| !c.is_whitespace()).count().to_string()),
+        (
+            "Characters without spaces",
+            text.chars()
+                .filter(|c| !c.is_whitespace())
+                .count()
+                .to_string(),
+        ),
         ("Words", all.len().to_string()),
         ("Unique words", ranked.len().to_string()),
         ("Sentences", sentences.to_string()),
         ("Paragraphs", paragraphs.to_string()),
         ("Lines", text.lines().count().to_string()),
-        ("Reading time", format!("{}m {:02}s", reading / 60, reading % 60)),
+        (
+            "Reading time",
+            format!("{}m {:02}s", reading / 60, reading % 60),
+        ),
     ];
     let out = table(&rows);
     if ranked.is_empty() {
         return Ok(out);
     }
-    Ok(out.note("Most used words").table(&["Word", "Times"], ranked.iter().take(5).map(|(word, count)| vec![word.clone(), format!("{count}×")])))
+    Ok(out.note("Most used words").table(
+        &["Word", "Times"],
+        ranked
+            .iter()
+            .take(5)
+            .map(|(word, count)| vec![word.clone(), format!("{count}×")]),
+    ))
 }
 
 pub fn upside_down(text: &str, _: &mut Opts) -> Result<Output, String> {
-    const FROM: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?'\"()[]{}<>&_;";
-    const TO: &str = "ɐqɔpǝɟƃɥᴉɾʞlɯuodbɹsʇnʌʍxʎz∀ꓭƆꓷƎℲ⅁HIſꓘ˥WNOԀῸꓤS⊥∩ΛMX⅄Z0ƖᄅƐㄣϛ9ㄥ86˙'¡¿,„)(][}{><⅋‾؛";
+    const FROM: &str =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?'\"()[]{}<>&_;";
+    const TO: &str =
+        "ɐqɔpǝɟƃɥᴉɾʞlɯuodbɹsʇnʌʍxʎz∀ꓭƆꓷƎℲ⅁HIſꓘ˥WNOԀῸꓤS⊥∩ΛMX⅄Z0ƖᄅƐㄣϛ9ㄥ86˙'¡¿,„)(][}{><⅋‾؛";
     let map: HashMap<char, char> = FROM.chars().zip(TO.chars()).collect();
-    Ok(super::snippet(text
-        .lines()
-        .rev()
-        .map(|l| l.chars().rev().map(|c| *map.get(&c).unwrap_or(&c)).collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")))
+    Ok(super::snippet(
+        text.lines()
+            .rev()
+            .map(|l| {
+                l.chars()
+                    .rev()
+                    .map(|c| *map.get(&c).unwrap_or(&c))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ))
 }
 
 // Extractors
@@ -417,8 +486,7 @@ pub fn capitalized(text: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(super::list(words(text).into_iter().filter(|w| {
         let mut letters = w.chars().filter(|c| c.is_alphabetic());
         let ok = if all_caps {
-            w.chars().filter(|c| c.is_alphabetic()).count() > 1
-                && letters.all(char::is_uppercase)
+            w.chars().filter(|c| c.is_alphabetic()).count() > 1 && letters.all(char::is_uppercase)
         } else {
             w.chars().next().is_some_and(char::is_uppercase)
         };
@@ -461,7 +529,10 @@ pub fn urls(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut seen = HashSet::new();
     Ok(super::list(
         re.find_iter(text)
-            .map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']']))
+            .map(|m| {
+                m.as_str()
+                    .trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']'])
+            })
             .filter(|m| !o.flag || seen.insert(*m)),
     ))
 }
@@ -504,7 +575,10 @@ fn is_hidden(c: char) -> bool {
 }
 
 fn is_odd_space(c: char) -> bool {
-    matches!(c as u32, 0x00A0 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000)
+    matches!(
+        c as u32,
+        0x00A0 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000
+    )
 }
 
 pub fn hidden(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -527,18 +601,19 @@ pub fn hidden(text: &str, _: &mut Opts) -> Result<Output, String> {
 }
 
 pub fn special(text: &str, o: &mut Opts) -> Result<Output, String> {
-    Ok(super::snippet(text
-        .chars()
-        .filter(|c| {
-            c.is_whitespace()
-                || match o.mode {
-                    "letters" => c.is_alphabetic(),
-                    "ascii" => c.is_ascii_alphanumeric(),
-                    "punctuation" => c.is_alphanumeric() || ".,;:!?'\"-()".contains(*c),
-                    _ => c.is_alphanumeric(),
-                }
-        })
-        .collect()))
+    Ok(super::snippet(
+        text.chars()
+            .filter(|c| {
+                c.is_whitespace()
+                    || match o.mode {
+                        "letters" => c.is_alphabetic(),
+                        "ascii" => c.is_ascii_alphanumeric(),
+                        "punctuation" => c.is_alphanumeric() || ".,;:!?'\"-()".contains(*c),
+                        _ => c.is_alphanumeric(),
+                    }
+            })
+            .collect(),
+    ))
 }
 
 // Numbers
@@ -571,7 +646,9 @@ pub fn sort_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.flag {
         found.dedup_by(|a, b| a.0 == b.0);
     }
-    Ok(super::snippet(found.iter().map(|(_, s)| *s).collect::<Vec<_>>().join("\n")))
+    Ok(super::snippet(
+        found.iter().map(|(_, s)| *s).collect::<Vec<_>>().join("\n"),
+    ))
 }
 
 // More text
@@ -579,21 +656,32 @@ pub fn sort_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
 pub fn char_frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut counts: HashMap<char, usize> = HashMap::new();
     for c in text.chars().filter(|c| !c.is_whitespace() || o.flag) {
-        let c = if o.check(1) { c.to_lowercase().next().unwrap_or(c) } else { c };
+        let c = if o.check(1) {
+            c.to_lowercase().next().unwrap_or(c)
+        } else {
+            c
+        };
         *counts.entry(c).or_insert(0) += 1;
     }
     let total: usize = counts.values().sum();
     let mut ranked: Vec<(char, usize)> = counts.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(super::grid(&["Character", "Count", "Share"], ranked.iter().map(|(c, n)| {
-        let shown = match c {
-            ' ' => "space".to_owned(),
-            '\n' => "newline".to_owned(),
-            '\t' => "tab".to_owned(),
-            c => c.to_string(),
-        };
-        vec![shown, n.to_string(), format!("{:.2}%", *n as f64 * 100.0 / total as f64)]
-    })))
+    Ok(super::grid(
+        &["Character", "Count", "Share"],
+        ranked.iter().map(|(c, n)| {
+            let shown = match c {
+                ' ' => "space".to_owned(),
+                '\n' => "newline".to_owned(),
+                '\t' => "tab".to_owned(),
+                c => c.to_string(),
+            };
+            vec![
+                shown,
+                n.to_string(),
+                format!("{:.2}%", *n as f64 * 100.0 / total as f64),
+            ]
+        }),
+    ))
 }
 
 pub fn word_frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -607,7 +695,16 @@ pub fn word_frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let total: usize = counts.values().sum();
     let mut ranked: Vec<(String, usize)> = counts.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(super::grid(&["Word", "Count", "Share"], ranked.iter().map(|(w, n)| vec![w.clone(), n.to_string(), format!("{:.2}%", *n as f64 * 100.0 / total as f64)])))
+    Ok(super::grid(
+        &["Word", "Count", "Share"],
+        ranked.iter().map(|(w, n)| {
+            vec![
+                w.clone(),
+                n.to_string(),
+                format!("{:.2}%", *n as f64 * 100.0 / total as f64),
+            ]
+        }),
+    ))
 }
 
 /// The lines of `a` and `b`, as `  `, `- ` and `+ ` lines, from the longest
@@ -617,7 +714,11 @@ fn diff_lines<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<(char, &'a str)> {
     let mut lcs = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
         }
     }
     let (mut i, mut j) = (0, 0);
@@ -643,29 +744,45 @@ pub fn diff(text: &str, o: &mut Opts) -> Result<Output, String> {
         .split_once("\n===\n")
         .ok_or("Put a line with only “===” between the two texts.")?;
     let split = |t: &'_ str| -> Vec<String> {
-        if o.mode == "words" { t.split_whitespace().map(str::to_owned).collect() } else { t.lines().map(str::to_owned).collect() }
+        if o.mode == "words" {
+            t.split_whitespace().map(str::to_owned).collect()
+        } else {
+            t.lines().map(str::to_owned).collect()
+        }
     };
     let (a, b) = (split(a), split(b));
-    let (a, b): (Vec<&str>, Vec<&str>) = (a.iter().map(String::as_str).collect(), b.iter().map(String::as_str).collect());
+    let (a, b): (Vec<&str>, Vec<&str>) = (
+        a.iter().map(String::as_str).collect(),
+        b.iter().map(String::as_str).collect(),
+    );
     if a.len() * b.len() > 4_000_000 {
         return Err("The texts are too long to compare.".into());
     }
     let d = diff_lines(&a, &b);
-    let (added, removed) = (d.iter().filter(|x| x.0 == '+').count(), d.iter().filter(|x| x.0 == '-').count());
+    let (added, removed) = (
+        d.iter().filter(|x| x.0 == '+').count(),
+        d.iter().filter(|x| x.0 == '-').count(),
+    );
     let note = format!("{added} added, {removed} removed");
     if o.mode == "words" {
-        return Ok(super::snippet(d
-            .iter()
-            .map(|(k, w)| match k {
-                '+' => format!("{{+{w}+}}"),
-                '-' => format!("[-{w}-]"),
-                _ => w.to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join(" "))
+        return Ok(super::snippet(
+            d.iter()
+                .map(|(k, w)| match k {
+                    '+' => format!("{{+{w}+}}"),
+                    '-' => format!("[-{w}-]"),
+                    _ => w.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
         .note(note));
     }
-    Ok(Output::from(lines(d.iter().filter(|(k, _)| !o.flag || *k != ' ').map(|(k, l)| format!("{k} {l}")))).note(note))
+    Ok(Output::from(lines(
+        d.iter()
+            .filter(|(k, _)| !o.flag || *k != ' ')
+            .map(|(k, l)| format!("{k} {l}")),
+    ))
+    .note(note))
 }
 
 /// Letters in another Unicode alphabet: the offsets of `A`, `a` and `0`.
@@ -712,34 +829,35 @@ pub fn fancy(text: &str, o: &mut Opts) -> Result<Output, String> {
         }
     };
     const SMALL: &str = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ";
-    Ok(super::snippet(text
-        .chars()
-        .map(|c| {
-            let mapped = match o.mode {
-                "italic" => alphabet(c, 0x1D434, 0x1D44E, None),
-                "bold-italic" => alphabet(c, 0x1D468, 0x1D482, None),
-                "script" => alphabet(c, 0x1D49C, 0x1D4B6, None),
-                "fraktur" => alphabet(c, 0x1D504, 0x1D51E, None),
-                "double" => alphabet(c, 0x1D538, 0x1D552, Some(0x1D7D8)),
-                "mono" => alphabet(c, 0x1D670, 0x1D68A, Some(0x1D7F6)),
-                "sans" => alphabet(c, 0x1D5D4, 0x1D5EE, Some(0x1D7EC)),
-                "circled" => alphabet(c, 0x24B6, 0x24D0, None),
-                "fullwidth" => match c {
-                    '!'..='~' => char::from_u32(c as u32 + 0xFEE0).unwrap_or(c),
-                    ' ' => '\u{3000}',
-                    c => c,
-                },
-                "small" => match c {
-                    'a'..='z' => SMALL.chars().nth(c as usize - 'a' as usize).unwrap_or(c),
-                    c => c,
-                },
-                "strike" => return format!("{c}\u{336}"),
-                "underline" => return format!("{c}\u{332}"),
-                _ => alphabet(c, 0x1D400, 0x1D41A, Some(0x1D7CE)),
-            };
-            holes(mapped, c).to_string()
-        })
-        .collect()))
+    Ok(super::snippet(
+        text.chars()
+            .map(|c| {
+                let mapped = match o.mode {
+                    "italic" => alphabet(c, 0x1D434, 0x1D44E, None),
+                    "bold-italic" => alphabet(c, 0x1D468, 0x1D482, None),
+                    "script" => alphabet(c, 0x1D49C, 0x1D4B6, None),
+                    "fraktur" => alphabet(c, 0x1D504, 0x1D51E, None),
+                    "double" => alphabet(c, 0x1D538, 0x1D552, Some(0x1D7D8)),
+                    "mono" => alphabet(c, 0x1D670, 0x1D68A, Some(0x1D7F6)),
+                    "sans" => alphabet(c, 0x1D5D4, 0x1D5EE, Some(0x1D7EC)),
+                    "circled" => alphabet(c, 0x24B6, 0x24D0, None),
+                    "fullwidth" => match c {
+                        '!'..='~' => char::from_u32(c as u32 + 0xFEE0).unwrap_or(c),
+                        ' ' => '\u{3000}',
+                        c => c,
+                    },
+                    "small" => match c {
+                        'a'..='z' => SMALL.chars().nth(c as usize - 'a' as usize).unwrap_or(c),
+                        c => c,
+                    },
+                    "strike" => return format!("{c}\u{336}"),
+                    "underline" => return format!("{c}\u{332}"),
+                    _ => alphabet(c, 0x1D400, 0x1D41A, Some(0x1D7CE)),
+                };
+                holes(mapped, c).to_string()
+            })
+            .collect(),
+    ))
 }
 
 pub fn line_numbers(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -765,7 +883,9 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<Output, String> {
     let n = o.number.max(1);
     let sentence = |rng: &mut super::Rng| {
         let len = 6 + rng.below(10);
-        let mut s: Vec<String> = (0..len).map(|_| vocab[rng.below(vocab.len())].to_owned()).collect();
+        let mut s: Vec<String> = (0..len)
+            .map(|_| vocab[rng.below(vocab.len())].to_owned())
+            .collect();
         s[0] = capitalize(&s[0]);
         if len > 9 {
             let comma = 3 + rng.below(len - 6);
@@ -776,7 +896,15 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<Output, String> {
     let start = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
     Ok(super::snippet(match o.mode {
         "words" => {
-            let mut w: Vec<&str> = (0..n).map(|i| if o.flag && i < vocab.len() { vocab[i] } else { vocab[o.rng.below(vocab.len())] }).collect();
+            let mut w: Vec<&str> = (0..n)
+                .map(|i| {
+                    if o.flag && i < vocab.len() {
+                        vocab[i]
+                    } else {
+                        vocab[o.rng.below(vocab.len())]
+                    }
+                })
+                .collect();
             if w.is_empty() {
                 w.push("lorem");
             }
@@ -793,7 +921,10 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<Output, String> {
             let mut p: Vec<String> = (0..n)
                 .map(|_| {
                     let count = 4 + o.rng.below(4);
-                    (0..count).map(|_| sentence(o.rng)).collect::<Vec<_>>().join(" ")
+                    (0..count)
+                        .map(|_| sentence(o.rng))
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 })
                 .collect();
             if o.flag {
@@ -806,14 +937,19 @@ pub fn lorem(_: &str, o: &mut Opts) -> Result<Output, String> {
 
 fn capitalize(w: &str) -> String {
     let mut c = w.chars();
-    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+    c.next()
+        .map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
 pub fn slug(text: &str, o: &mut Opts) -> Result<Output, String> {
     let sep = if o.mode == "underscore" { "_" } else { "-" };
     let plain = unaccented(text);
     Ok(super::snippet(lines(plain.lines().map(|l| {
-        let l = if o.flag { l.to_owned() } else { l.to_lowercase() };
+        let l = if o.flag {
+            l.to_owned()
+        } else {
+            l.to_lowercase()
+        };
         l.split(|c: char| !c.is_alphanumeric())
             .filter(|w| !w.is_empty())
             .collect::<Vec<_>>()
@@ -824,21 +960,151 @@ pub fn slug(text: &str, o: &mut Opts) -> Result<Output, String> {
 // Writing
 
 pub const STOPWORDS: &[&str] = &[
-    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "as", "at", "be",
-    "because", "been", "before", "being", "below", "between", "both", "but", "by", "can", "could", "did", "do",
-    "does", "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has", "have", "having",
-    "he", "her", "here", "hers", "herself", "him", "himself", "his", "how", "i", "if", "in", "into", "is", "it",
-    "its", "itself", "just", "me", "more", "most", "my", "myself", "no", "nor", "not", "now", "of", "off", "on",
-    "once", "only", "or", "other", "our", "ours", "ourselves", "out", "over", "own", "same", "she", "should", "so",
-    "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these",
-    "they", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "we", "were", "what",
-    "when", "where", "which", "while", "who", "whom", "why", "will", "with", "would", "you", "your", "yours",
-    "yourself", "yourselves", "it's", "don't", "i'm", "can't", "also", "into", "one", "may", "might", "must",
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "against",
+    "all",
+    "am",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "below",
+    "between",
+    "both",
+    "but",
+    "by",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "doing",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "further",
+    "had",
+    "has",
+    "have",
+    "having",
+    "he",
+    "her",
+    "here",
+    "hers",
+    "herself",
+    "him",
+    "himself",
+    "his",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "itself",
+    "just",
+    "me",
+    "more",
+    "most",
+    "my",
+    "myself",
+    "no",
+    "nor",
+    "not",
+    "now",
+    "of",
+    "off",
+    "on",
+    "once",
+    "only",
+    "or",
+    "other",
+    "our",
+    "ours",
+    "ourselves",
+    "out",
+    "over",
+    "own",
+    "same",
+    "she",
+    "should",
+    "so",
+    "some",
+    "such",
+    "than",
+    "that",
+    "the",
+    "their",
+    "theirs",
+    "them",
+    "themselves",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "until",
+    "up",
+    "very",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "who",
+    "whom",
+    "why",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+    "it's",
+    "don't",
+    "i'm",
+    "can't",
+    "also",
+    "into",
+    "one",
+    "may",
+    "might",
+    "must",
 ];
 
 /// Syllables in an English word, by vowel groups with the usual exceptions.
 pub fn syllables(word: &str) -> usize {
-    let w: String = word.to_lowercase().chars().filter(|c| c.is_alphabetic()).collect();
+    let w: String = word
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphabetic())
+        .collect();
     if w.is_empty() {
         return 0;
     }
@@ -860,7 +1126,12 @@ pub fn syllables(word: &str) -> usize {
     if w.ends_with('e') && !w.ends_with("le") && !w.ends_with("ee") && count > 1 {
         count -= 1;
     }
-    if (w.ends_with("es") || w.ends_with("ed")) && !w.ends_with("ted") && !w.ends_with("ded") && count > 1 && !vowel(chars[chars.len() - 3]) {
+    if (w.ends_with("es") || w.ends_with("ed"))
+        && !w.ends_with("ted")
+        && !w.ends_with("ded")
+        && count > 1
+        && !vowel(chars[chars.len() - 3])
+    {
         count -= 1;
     }
     count.max(1)
@@ -883,7 +1154,10 @@ pub fn readability(text: &str, _: &mut Opts) -> Result<Output, String> {
     let n = w.len() as f64;
     let syl: usize = w.iter().map(|w| syllables(w)).sum();
     let complex = w.iter().filter(|w| syllables(w) >= 3).count() as f64;
-    let letters = w.iter().map(|w| w.chars().filter(|c| c.is_alphanumeric()).count()).sum::<usize>() as f64;
+    let letters = w
+        .iter()
+        .map(|w| w.chars().filter(|c| c.is_alphanumeric()).count())
+        .sum::<usize>() as f64;
     let syl = syl as f64;
     let ease = 206.835 - 1.015 * (n / s) - 84.6 * (syl / n);
     let grade = 0.39 * (n / s) + 11.8 * (syl / n) - 15.59;
@@ -914,31 +1188,54 @@ pub fn readability(text: &str, _: &mut Opts) -> Result<Output, String> {
         ("Syllables", format!("{syl}")),
         ("Words per sentence", format!("{:.1}", n / s)),
         ("Syllables per word", format!("{:.2}", syl / n)),
-        ("Complex words", format!("{complex} ({:.1}%)", complex * 100.0 / n)),
+        (
+            "Complex words",
+            format!("{complex} ({:.1}%)", complex * 100.0 / n),
+        ),
     ]))
 }
 
 pub fn syllable_count(text: &str, _: &mut Opts) -> Result<Output, String> {
     let w = words(text);
     let total: usize = w.iter().map(|w| syllables(w)).sum();
-    Ok(table(&[("Syllables", total.to_string())]).table(&["Word", "Syllables"], w.iter().map(|w| vec![w.to_string(), syllables(w).to_string()])))
+    Ok(table(&[("Syllables", total.to_string())]).table(
+        &["Word", "Syllables"],
+        w.iter()
+            .map(|w| vec![w.to_string(), syllables(w).to_string()]),
+    ))
 }
 
 pub fn passive(text: &str, _: &mut Opts) -> Result<Output, String> {
-    let re = regex(r"(?i)\b(?:am|is|are|was|were|be|been|being|get|gets|got|gotten)\s+(?:\w+ly\s+)?(\w+(?:ed|en|wn|lt|pt|ung|ought|aught|ade|ung|id|one))\b");
+    let re = regex(
+        r"(?i)\b(?:am|is|are|was|were|be|been|being|get|gets|got|gotten)\s+(?:\w+ly\s+)?(\w+(?:ed|en|wn|lt|pt|ung|ought|aught|ade|ung|id|one))\b",
+    );
     let found = sentences(text)
         .into_iter()
-        .filter_map(|s| re.find(s).map(|m| vec![s.to_owned(), format!("“{}”", m.as_str())]))
+        .filter_map(|s| {
+            re.find(s)
+                .map(|m| vec![s.to_owned(), format!("“{}”", m.as_str())])
+        })
         .collect::<Vec<_>>();
     if found.is_empty() {
         return Ok(verdict(true, "No passive voice found."));
     }
     let n = found.len();
-    Ok(verdict(false, format!("{n} sentence{} in the passive voice.", if n == 1 { "" } else { "s" })).table(&["Sentence", "Passive"], found))
+    Ok(verdict(
+        false,
+        format!(
+            "{n} sentence{} in the passive voice.",
+            if n == 1 { "" } else { "s" }
+        ),
+    )
+    .table(&["Sentence", "Passive"], found))
 }
 
 pub fn adverbs(text: &str, _: &mut Opts) -> Result<Output, String> {
-    const NOT: &[&str] = &["only", "family", "early", "reply", "apply", "supply", "fly", "july", "italy", "rely", "holy", "ugly", "belly", "jelly", "bully", "rally", "ally", "lily", "silly", "daily", "friendly", "lovely", "lonely", "likely", "lively", "costly", "elderly", "orderly"];
+    const NOT: &[&str] = &[
+        "only", "family", "early", "reply", "apply", "supply", "fly", "july", "italy", "rely",
+        "holy", "ugly", "belly", "jelly", "bully", "rally", "ally", "lily", "silly", "daily",
+        "friendly", "lovely", "lonely", "likely", "lively", "costly", "elderly", "orderly",
+    ];
     let mut counts: Vec<(String, usize)> = Vec::new();
     for w in words(text) {
         let l = w.to_lowercase();
@@ -951,25 +1248,84 @@ pub fn adverbs(text: &str, _: &mut Opts) -> Result<Output, String> {
     }
     let total: usize = counts.iter().map(|c| c.1).sum();
     let all = words(text).len().max(1);
-    Ok(table(&[("Adverbs", total.to_string()), ("Words", all.to_string()), ("Share", format!("{:.1}%", total as f64 * 100.0 / all as f64))])
-        .table(&["Adverb", "Times"], counts.iter().map(|(w, n)| vec![w.clone(), n.to_string()])))
+    Ok(table(&[
+        ("Adverbs", total.to_string()),
+        ("Words", all.to_string()),
+        (
+            "Share",
+            format!("{:.1}%", total as f64 * 100.0 / all as f64),
+        ),
+    ])
+    .table(
+        &["Adverb", "Times"],
+        counts.iter().map(|(w, n)| vec![w.clone(), n.to_string()]),
+    ))
 }
 
 const CLICHES: &[&str] = &[
-    "at the end of the day", "avoid like the plague", "better late than never", "beat around the bush",
-    "bite the bullet", "break the ice", "by the same token", "calm before the storm", "come to a head",
-    "cut to the chase", "dead as a doornail", "every cloud has a silver lining", "few and far between",
-    "fit as a fiddle", "for all intents and purposes", "go the extra mile", "hit the nail on the head",
-    "in the nick of time", "it goes without saying", "last but not least", "low-hanging fruit",
-    "move the needle", "needle in a haystack", "only time will tell", "out of the box", "think outside the box",
-    "par for the course", "piece of cake", "plenty of fish in the sea", "read between the lines",
-    "the bottom line", "time will tell", "tip of the iceberg", "touch base", "under the weather",
-    "when all is said and done", "win-win", "game changer", "paradigm shift", "at this point in time",
-    "in this day and age", "all walks of life", "back to square one", "ballpark figure", "blessing in disguise",
-    "easier said than done", "head over heels", "on the same page", "level playing field", "the elephant in the room",
-    "let the cat out of the bag", "once in a blue moon", "a perfect storm", "take it to the next level",
-    "the writing on the wall", "slowly but surely", "the whole nine yards", "throw caution to the wind",
-    "you can't judge a book by its cover", "think on your feet", "circle back", "deep dive", "synergy",
+    "at the end of the day",
+    "avoid like the plague",
+    "better late than never",
+    "beat around the bush",
+    "bite the bullet",
+    "break the ice",
+    "by the same token",
+    "calm before the storm",
+    "come to a head",
+    "cut to the chase",
+    "dead as a doornail",
+    "every cloud has a silver lining",
+    "few and far between",
+    "fit as a fiddle",
+    "for all intents and purposes",
+    "go the extra mile",
+    "hit the nail on the head",
+    "in the nick of time",
+    "it goes without saying",
+    "last but not least",
+    "low-hanging fruit",
+    "move the needle",
+    "needle in a haystack",
+    "only time will tell",
+    "out of the box",
+    "think outside the box",
+    "par for the course",
+    "piece of cake",
+    "plenty of fish in the sea",
+    "read between the lines",
+    "the bottom line",
+    "time will tell",
+    "tip of the iceberg",
+    "touch base",
+    "under the weather",
+    "when all is said and done",
+    "win-win",
+    "game changer",
+    "paradigm shift",
+    "at this point in time",
+    "in this day and age",
+    "all walks of life",
+    "back to square one",
+    "ballpark figure",
+    "blessing in disguise",
+    "easier said than done",
+    "head over heels",
+    "on the same page",
+    "level playing field",
+    "the elephant in the room",
+    "let the cat out of the bag",
+    "once in a blue moon",
+    "a perfect storm",
+    "take it to the next level",
+    "the writing on the wall",
+    "slowly but surely",
+    "the whole nine yards",
+    "throw caution to the wind",
+    "you can't judge a book by its cover",
+    "think on your feet",
+    "circle back",
+    "deep dive",
+    "synergy",
 ];
 
 pub fn cliches(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -1002,7 +1358,13 @@ pub fn repetition(text: &str, o: &mut Opts) -> Result<Output, String> {
     if ranked.is_empty() {
         return Ok(verdict(true, "Nothing is repeated."));
     }
-    Ok(super::grid(&["Words", "Times"], ranked.iter().take(50).map(|(p, c)| vec![p.clone(), format!("{c}×")])))
+    Ok(super::grid(
+        &["Words", "Times"],
+        ranked
+            .iter()
+            .take(50)
+            .map(|(p, c)| vec![p.clone(), format!("{c}×")]),
+    ))
 }
 
 pub fn sentence_length(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -1020,16 +1382,74 @@ pub fn sentence_length(text: &str, o: &mut Opts) -> Result<Output, String> {
         ("Longest", format!("{} words", lens.iter().max().unwrap())),
         (&format!("Over {limit} words"), long.to_string()),
     ])
-    .table(&["Words", "Sentence", ""], all.iter().zip(&lens).map(|(s, n)| vec![n.to_string(), s.to_string(), if *n > limit { "too long".into() } else { String::new() }])))
+    .table(
+        &["Words", "Sentence", ""],
+        all.iter().zip(&lens).map(|(s, n)| {
+            vec![
+                n.to_string(),
+                s.to_string(),
+                if *n > limit {
+                    "too long".into()
+                } else {
+                    String::new()
+                },
+            ]
+        }),
+    ))
 }
 
 const TRANSITIONS: &[&str] = &[
-    "accordingly", "additionally", "afterward", "also", "although", "as a result", "besides", "but", "consequently",
-    "conversely", "finally", "first", "for example", "for instance", "furthermore", "hence", "however",
-    "in addition", "in conclusion", "in contrast", "in fact", "in other words", "in short", "indeed", "instead",
-    "likewise", "meanwhile", "moreover", "nevertheless", "next", "nonetheless", "on the other hand", "otherwise",
-    "second", "similarly", "since", "so", "subsequently", "then", "therefore", "thus", "to summarize", "ultimately",
-    "whereas", "yet", "because", "even though", "in the meantime", "to illustrate", "above all", "after all",
+    "accordingly",
+    "additionally",
+    "afterward",
+    "also",
+    "although",
+    "as a result",
+    "besides",
+    "but",
+    "consequently",
+    "conversely",
+    "finally",
+    "first",
+    "for example",
+    "for instance",
+    "furthermore",
+    "hence",
+    "however",
+    "in addition",
+    "in conclusion",
+    "in contrast",
+    "in fact",
+    "in other words",
+    "in short",
+    "indeed",
+    "instead",
+    "likewise",
+    "meanwhile",
+    "moreover",
+    "nevertheless",
+    "next",
+    "nonetheless",
+    "on the other hand",
+    "otherwise",
+    "second",
+    "similarly",
+    "since",
+    "so",
+    "subsequently",
+    "then",
+    "therefore",
+    "thus",
+    "to summarize",
+    "ultimately",
+    "whereas",
+    "yet",
+    "because",
+    "even though",
+    "in the meantime",
+    "to illustrate",
+    "above all",
+    "after all",
 ];
 
 pub fn transitions(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -1061,13 +1481,22 @@ pub fn lexical_density(text: &str, _: &mut Opts) -> Result<Output, String> {
     if w.is_empty() {
         return Err("There are no words.".into());
     }
-    let lexical = w.iter().filter(|w| !STOPWORDS.contains(&w.to_lowercase().as_str())).count();
+    let lexical = w
+        .iter()
+        .filter(|w| !STOPWORDS.contains(&w.to_lowercase().as_str()))
+        .count();
     let unique: HashSet<String> = w.iter().map(|w| w.to_lowercase()).collect();
     Ok(super::table(&[
-        ("Lexical density", format!("{:.1}%", lexical as f64 * 100.0 / w.len() as f64)),
+        (
+            "Lexical density",
+            format!("{:.1}%", lexical as f64 * 100.0 / w.len() as f64),
+        ),
         ("Lexical words", lexical.to_string()),
         ("Function words", (w.len() - lexical).to_string()),
-        ("Type–token ratio", format!("{:.1}%", unique.len() as f64 * 100.0 / w.len() as f64)),
+        (
+            "Type–token ratio",
+            format!("{:.1}%", unique.len() as f64 * 100.0 / w.len() as f64),
+        ),
     ]))
 }
 
@@ -1078,19 +1507,32 @@ pub fn keyword_density(text: &str, o: &mut Opts) -> Result<Output, String> {
     for n in 1..=3 {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for g in w.windows(n) {
-            if o.flag && (STOPWORDS.contains(&g[0].as_str()) || STOPWORDS.contains(&g[n - 1].as_str())) {
+            if o.flag
+                && (STOPWORDS.contains(&g[0].as_str()) || STOPWORDS.contains(&g[n - 1].as_str()))
+            {
                 continue;
             }
             *counts.entry(g.join(" ")).or_insert(0) += 1;
         }
-        let mut ranked: Vec<(String, usize)> = counts.into_iter().filter(|c| n == 1 || c.1 > 1).collect();
+        let mut ranked: Vec<(String, usize)> =
+            counts.into_iter().filter(|c| n == 1 || c.1 > 1).collect();
         ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         if ranked.is_empty() {
             continue;
         }
         out = out.table(
-            &[["Word", "Two-word phrase", "Three-word phrase"][n - 1], "Count", "Density"],
-            ranked.iter().take(10).map(|(k, c)| vec![k.clone(), c.to_string(), format!("{:.2}%", *c as f64 * 100.0 * n as f64 / total as f64)]),
+            &[
+                ["Word", "Two-word phrase", "Three-word phrase"][n - 1],
+                "Count",
+                "Density",
+            ],
+            ranked.iter().take(10).map(|(k, c)| {
+                vec![
+                    k.clone(),
+                    c.to_string(),
+                    format!("{:.2}%", *c as f64 * 100.0 * n as f64 / total as f64),
+                ]
+            }),
         );
     }
     Ok(out)
@@ -1104,11 +1546,14 @@ pub fn keywords(text: &str, o: &mut Opts) -> Result<Output, String> {
         if l.len() < 3 || STOPWORDS.contains(&l.as_str()) || l.chars().all(|c| c.is_numeric()) {
             continue;
         }
-        *scores.entry(l).or_insert(0.0) += 1.0 + (w.chars().next().is_some_and(char::is_uppercase) as u8 as f64) * 0.5;
+        *scores.entry(l).or_insert(0.0) +=
+            1.0 + (w.chars().next().is_some_and(char::is_uppercase) as u8 as f64) * 0.5;
     }
     let mut ranked: Vec<(String, f64)> = scores.into_iter().collect();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-    Ok(super::list(ranked.iter().take(o.number.max(1)).map(|k| k.0.as_str())))
+    Ok(super::list(
+        ranked.iter().take(o.number.max(1)).map(|k| k.0.as_str()),
+    ))
 }
 
 pub fn tokens(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -1122,12 +1567,20 @@ pub fn tokens(text: &str, _: &mut Opts) -> Result<Output, String> {
         ("Characters", chars.to_string()),
         ("Words", w.to_string()),
         ("Words and symbols", pieces.to_string()),
-        ("", "An estimate: each model's tokenizer counts a little differently.".into()),
+        (
+            "",
+            "An estimate: each model's tokenizer counts a little differently.".into(),
+        ),
     ]))
 }
 
 pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
-    let authors: Vec<&str> = o.field(0).split(';').map(str::trim).filter(|a| !a.is_empty()).collect();
+    let authors: Vec<&str> = o
+        .field(0)
+        .split(';')
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .collect();
     let (title, year, source, url) = (o.field(1), o.field(2), o.field(3), o.field(4));
     if title.is_empty() {
         return Err("Fill in “Title”.".into());
@@ -1142,8 +1595,18 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
             },
         }
     };
-    let initials = |first: &str| first.split_whitespace().map(|p| format!("{}.", p.chars().next().unwrap_or(' '))).collect::<Vec<_>>().join(" ");
-    let year = if year.is_empty() { "n.d.".to_owned() } else { year.to_owned() };
+    let initials = |first: &str| {
+        first
+            .split_whitespace()
+            .map(|p| format!("{}.", p.chars().next().unwrap_or(' ')))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let year = if year.is_empty() {
+        "n.d.".to_owned()
+    } else {
+        year.to_owned()
+    };
     let tail = |sep: &str| {
         let mut t = String::new();
         if !source.is_empty() {
@@ -1171,7 +1634,10 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
                     format!("{l}, {f}, et al. ")
                 }
             };
-            format!("{names}“{title}.”{}, {year}.", tail(" ").trim_end_matches('.'))
+            format!(
+                "{names}“{title}.”{}, {year}.",
+                tail(" ").trim_end_matches('.')
+            )
         }
         "chicago" => {
             let names: Vec<String> = authors
@@ -1179,13 +1645,21 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
                 .enumerate()
                 .map(|(i, a)| {
                     let (l, f) = split(a);
-                    if i == 0 { format!("{l}, {f}") } else { format!("{f} {l}") }
+                    if i == 0 {
+                        format!("{l}, {f}")
+                    } else {
+                        format!("{f} {l}")
+                    }
                 })
                 .collect();
             let names = match names.len() {
                 0 => String::new(),
                 1 => format!("{}. ", names[0]),
-                _ => format!("{}, and {}. ", names[..names.len() - 1].join(", "), names[names.len() - 1]),
+                _ => format!(
+                    "{}, and {}. ",
+                    names[..names.len() - 1].join(", "),
+                    names[names.len() - 1]
+                ),
             };
             format!("{names}{year}. “{title}.”{}", tail(" "))
         }
@@ -1200,10 +1674,25 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
             let names = match names.len() {
                 0 => String::new(),
                 1 => names[0].clone(),
-                _ => format!("{} and {}", names[..names.len() - 1].join(", "), names[names.len() - 1]),
+                _ => format!(
+                    "{} and {}",
+                    names[..names.len() - 1].join(", "),
+                    names[names.len() - 1]
+                ),
             };
-            let url = if url.is_empty() { String::new() } else { format!(" Available at: {url}") };
-            format!("{names} ({year}) {title}.{}{url}", if source.is_empty() { String::new() } else { format!(" {source}.") })
+            let url = if url.is_empty() {
+                String::new()
+            } else {
+                format!(" Available at: {url}")
+            };
+            format!(
+                "{names} ({year}) {title}.{}{url}",
+                if source.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {source}.")
+                }
+            )
         }
         _ => {
             let names: Vec<String> = authors
@@ -1216,7 +1705,11 @@ pub fn citation(_: &str, o: &mut Opts) -> Result<Output, String> {
             let names = match names.len() {
                 0 => String::new(),
                 1 => format!("{} ", names[0]),
-                _ => format!("{}, & {} ", names[..names.len() - 1].join(", "), names[names.len() - 1]),
+                _ => format!(
+                    "{}, & {} ",
+                    names[..names.len() - 1].join(", "),
+                    names[names.len() - 1]
+                ),
             };
             format!("{names}({year}). {title}.{}", tail(" "))
         }
@@ -1240,50 +1733,201 @@ const CASES: super::Menu = &[
     ("kebab", "kebab-case"),
     ("constant", "CONSTANT_CASE"),
 ];
-const SEPARATORS: super::Menu = &[("comma", "Commas"), ("newline", "Lines"), ("space", "Spaces")];
+const SEPARATORS: super::Menu = &[
+    ("comma", "Commas"),
+    ("newline", "Lines"),
+    ("space", "Spaces"),
+];
 const UNIQUE: &[&str] = &["Only the first of each"];
 
 pub const TEXT: &[Tool] = &[
-    tool("counter", "Text counter", "Characters, words, sentences, lines, reading time and the most used words.", counter),
-    tool("case", "Case converter", "Upper, lower, title, sentence, camel, snake and more cases.", case)
-        .selects(&[("Case", CASES)]),
-    tool("find-replace", "Find and replace", "Replace text or a regular expression everywhere.", find_replace)
-        .fields(&[("Find", ""), ("Replace with", "")])
-        .selects(&[("Search for", &[("text", "Plain text"), ("regex", "Regular expression ($1 for groups)")])])
-        .checks(&["Ignore case"]),
-    tool("remove-accents", "Remove accents", "Strips accents and diacritics: “déjà vu” becomes “deja vu”.", remove_accents),
-    tool("remove-duplicate-keywords", "Remove duplicate keywords", "Keeps the first of each keyword in a list.", duplicate_keywords)
-        .selects(&[("Keywords separated by", SEPARATORS)])
-        .checks(&["Ignore case"]),
-    tool("remove-duplicate-lines", "Remove duplicate lines", "Deletes repeated lines.", duplicate_lines)
-        .selects(&[("Keep", &[("first", "The first of each"), ("all", "Only lines never repeated")])])
-        .checks(&["Ignore case"]),
-    tool("remove-emojis", "Remove emojis", "Removes emoji and pictographs.", remove_emojis),
-    tool("remove-empty-lines", "Remove empty lines", "Deletes blank lines.", remove_empty_lines),
-    tool("remove-extra-spaces", "Remove extra spaces", "Collapses runs of spaces, in text or JSON.", remove_extra_spaces)
-        .selects(&[("Text is", &[("text", "Plain text"), ("json", "JSON (all whitespace outside strings)")])]),
-    tool("remove-hashtags", "Remove hashtags", "Strips #hashtags from text.", remove_hashtags),
-    tool("remove-line-breaks", "Remove line breaks", "Joins lines into one.", remove_line_breaks)
-        .selects(&[("Line breaks become", &[("space", "Spaces"), ("nothing", "Nothing"), ("paragraphs", "Spaces, keeping paragraphs")])]),
-    tool("lines-containing", "Remove lines containing", "Removes, or keeps only, the lines that contain some text.", lines_containing)
-        .fields(&[("Lines containing", "")])
-        .selects(&[("Action", &[("remove", "Remove them"), ("keep", "Keep only them")])])
-        .checks(&["Ignore case"]),
-    tool("reverse", "Reverse text", "Reverses characters, words or lines.", reverse)
-        .selects(&[("Reverse", &[("chars", "Characters"), ("words", "Word order"), ("each", "Each word"), ("lines", "Line order")])]),
-    tool("sort-lines", "Sort lines", "Sorts lines alphabetically, in reverse, by length or at random.", sort_lines)
-        .selects(&[("Order", &[("asc", "A to Z"), ("desc", "Z to A"), ("length", "By length"), ("random", "Random"), ("reverse", "Reverse")])])
-        .checks(&["Ignore case"]),
-    tool("upside-down", "Upside-down text", "Flips text upside down: ɹǝʍol.", upside_down),
-    tool("char-frequency", "Character frequency", "How often each character appears.", char_frequency)
-        .checks(&["Count whitespace", "Ignore case"]),
-    tool("word-frequency", "Word frequency", "How often each word appears.", word_frequency)
-        .checks(&["Skip common words"]),
-    tool("diff", "Text diff", "Compares two texts line by line or word by word. Separate them with a line of “===”.", diff)
-        .text("Original, then a line of ===, then the changed text")
-        .selects(&[("Compare", &[("lines", "Lines"), ("words", "Words")])])
-        .checks(&["Only changes"]),
-    tool("fancy", "Fancy text", "Bold, italic, script, gothic and other Unicode letters.", fancy).selects(&[(
+    tool(
+        "counter",
+        "Text counter",
+        "Characters, words, sentences, lines, reading time and the most used words.",
+        counter,
+    ),
+    tool(
+        "case",
+        "Case converter",
+        "Upper, lower, title, sentence, camel, snake and more cases.",
+        case,
+    )
+    .selects(&[("Case", CASES)]),
+    tool(
+        "find-replace",
+        "Find and replace",
+        "Replace text or a regular expression everywhere.",
+        find_replace,
+    )
+    .fields(&[("Find", ""), ("Replace with", "")])
+    .selects(&[(
+        "Search for",
+        &[
+            ("text", "Plain text"),
+            ("regex", "Regular expression ($1 for groups)"),
+        ],
+    )])
+    .checks(&["Ignore case"]),
+    tool(
+        "remove-accents",
+        "Remove accents",
+        "Strips accents and diacritics: “déjà vu” becomes “deja vu”.",
+        remove_accents,
+    ),
+    tool(
+        "transliterate",
+        "Transliterate to ASCII",
+        "Turns accented, Cyrillic, Greek, kana and CJK text into ASCII: “Привет” becomes “Privet”.",
+        ascii,
+    ),
+    tool(
+        "remove-duplicate-keywords",
+        "Remove duplicate keywords",
+        "Keeps the first of each keyword in a list.",
+        duplicate_keywords,
+    )
+    .selects(&[("Keywords separated by", SEPARATORS)])
+    .checks(&["Ignore case"]),
+    tool(
+        "remove-duplicate-lines",
+        "Remove duplicate lines",
+        "Deletes repeated lines.",
+        duplicate_lines,
+    )
+    .selects(&[(
+        "Keep",
+        &[
+            ("first", "The first of each"),
+            ("all", "Only lines never repeated"),
+        ],
+    )])
+    .checks(&["Ignore case"]),
+    tool(
+        "remove-emojis",
+        "Remove emojis",
+        "Removes emoji and pictographs.",
+        remove_emojis,
+    ),
+    tool(
+        "remove-empty-lines",
+        "Remove empty lines",
+        "Deletes blank lines.",
+        remove_empty_lines,
+    ),
+    tool(
+        "remove-extra-spaces",
+        "Remove extra spaces",
+        "Collapses runs of spaces, in text or JSON.",
+        remove_extra_spaces,
+    )
+    .selects(&[(
+        "Text is",
+        &[
+            ("text", "Plain text"),
+            ("json", "JSON (all whitespace outside strings)"),
+        ],
+    )]),
+    tool(
+        "remove-hashtags",
+        "Remove hashtags",
+        "Strips #hashtags from text.",
+        remove_hashtags,
+    ),
+    tool(
+        "remove-line-breaks",
+        "Remove line breaks",
+        "Joins lines into one.",
+        remove_line_breaks,
+    )
+    .selects(&[(
+        "Line breaks become",
+        &[
+            ("space", "Spaces"),
+            ("nothing", "Nothing"),
+            ("paragraphs", "Spaces, keeping paragraphs"),
+        ],
+    )]),
+    tool(
+        "lines-containing",
+        "Remove lines containing",
+        "Removes, or keeps only, the lines that contain some text.",
+        lines_containing,
+    )
+    .fields(&[("Lines containing", "")])
+    .selects(&[(
+        "Action",
+        &[("remove", "Remove them"), ("keep", "Keep only them")],
+    )])
+    .checks(&["Ignore case"]),
+    tool(
+        "reverse",
+        "Reverse text",
+        "Reverses characters, words or lines.",
+        reverse,
+    )
+    .selects(&[(
+        "Reverse",
+        &[
+            ("chars", "Characters"),
+            ("words", "Word order"),
+            ("each", "Each word"),
+            ("lines", "Line order"),
+        ],
+    )]),
+    tool(
+        "sort-lines",
+        "Sort lines",
+        "Sorts lines alphabetically, in reverse, by length or at random.",
+        sort_lines,
+    )
+    .selects(&[(
+        "Order",
+        &[
+            ("asc", "A to Z"),
+            ("desc", "Z to A"),
+            ("length", "By length"),
+            ("random", "Random"),
+            ("reverse", "Reverse"),
+        ],
+    )])
+    .checks(&["Ignore case"]),
+    tool(
+        "upside-down",
+        "Upside-down text",
+        "Flips text upside down: ɹǝʍol.",
+        upside_down,
+    ),
+    tool(
+        "char-frequency",
+        "Character frequency",
+        "How often each character appears.",
+        char_frequency,
+    )
+    .checks(&["Count whitespace", "Ignore case"]),
+    tool(
+        "word-frequency",
+        "Word frequency",
+        "How often each word appears.",
+        word_frequency,
+    )
+    .checks(&["Skip common words"]),
+    tool(
+        "diff",
+        "Text diff",
+        "Compares two texts line by line or word by word. Separate them with a line of “===”.",
+        diff,
+    )
+    .text("Original, then a line of ===, then the changed text")
+    .selects(&[("Compare", &[("lines", "Lines"), ("words", "Words")])])
+    .checks(&["Only changes"]),
+    tool(
+        "fancy",
+        "Fancy text",
+        "Bold, italic, script, gothic and other Unicode letters.",
+        fancy,
+    )
+    .selects(&[(
         "Style",
         &[
             ("bold", "𝐁𝐨𝐥𝐝"),
@@ -1301,63 +1945,219 @@ pub const TEXT: &[Tool] = &[
             ("underline", "U̲n̲d̲e̲r̲"),
         ],
     )]),
-    tool("line-numbers", "Add line numbers", "Numbers each line.", line_numbers)
-        .fields(&[("Start at", "1"), ("Separator", ". ")])
-        .checks(&["Skip empty lines"]),
+    tool(
+        "line-numbers",
+        "Add line numbers",
+        "Numbers each line.",
+        line_numbers,
+    )
+    .fields(&[("Start at", "1"), ("Separator", ". ")])
+    .checks(&["Skip empty lines"]),
     tool("lorem", "Lorem ipsum", "Placeholder Latin text.", lorem)
         .form()
-        .selects(&[("Generate", &[("paragraphs", "Paragraphs"), ("sentences", "Sentences"), ("words", "Words")])])
+        .selects(&[(
+            "Generate",
+            &[
+                ("paragraphs", "Paragraphs"),
+                ("sentences", "Sentences"),
+                ("words", "Words"),
+            ],
+        )])
         .checks(&["Start with “Lorem ipsum”"])
         .slider("How many", 1.0, 50.0, 3.0),
-    tool("slug", "Slug generator", "Turns titles into URL slugs.", slug)
-        .selects(&[("Separator", &[("dash", "Dashes"), ("underscore", "Underscores")])])
-        .checks(&["Keep the case"]),
+    tool(
+        "slug",
+        "Slug generator",
+        "Turns titles into URL slugs.",
+        slug,
+    )
+    .selects(&[(
+        "Separator",
+        &[("dash", "Dashes"), ("underscore", "Underscores")],
+    )])
+    .checks(&["Keep the case"]),
 ];
 
 pub const WRITING: &[Tool] = &[
-    tool("readability", "Readability score", "Flesch reading ease, grade levels, fog and SMOG indexes.", readability),
-    tool("syllables", "Syllable counter", "Syllables per word, and in all.", syllable_count),
-    tool("passive", "Passive voice finder", "Sentences that seem to use the passive voice.", passive),
-    tool("adverbs", "Adverb highlighter", "The -ly adverbs, and how many there are.", adverbs),
-    tool("cliches", "Cliché finder", "Common clichés and buzzwords in the text.", cliches),
-    tool("repetition", "Repetition finder", "Words and phrases used again and again.", repetition)
-        .slider("Words per phrase", 1.0, 5.0, 1.0),
-    tool("sentence-length", "Sentence length", "Words per sentence, flagging the long ones.", sentence_length)
-        .slider("Long after", 10.0, 50.0, 25.0),
-    tool("transitions", "Transition words", "How many sentences use transition words.", transitions),
-    tool("lexical-density", "Lexical density", "The share of content words, and of distinct words.", lexical_density),
-    tool("keyword-density", "Keyword density", "The most used words and phrases, as a share of the text.", keyword_density)
-        .checks(&["Skip common words"]),
-    tool("keywords", "Keyword extractor", "The words that best describe the text.", keywords).slider("Keywords", 1.0, 30.0, 10.0),
-    tool("tokens", "Token counter", "An estimate of the tokens a language model would see.", tokens),
-    tool("citation", "Citation formatter", "APA, MLA, Chicago or Harvard references.", citation)
-        .form()
-        .fields(&[
-            ("Authors (separated by ;)", "Ada Lovelace; Charles Babbage"),
-            ("Title", "Sketch of the Analytical Engine"),
-            ("Year", "1843"),
-            ("Publisher or site", "Taylor's Scientific Memoirs"),
-            ("URL", ""),
-        ])
-        .selects(&[("Style", &[("apa", "APA"), ("mla", "MLA"), ("chicago", "Chicago"), ("harvard", "Harvard")])]),
+    tool(
+        "readability",
+        "Readability score",
+        "Flesch reading ease, grade levels, fog and SMOG indexes.",
+        readability,
+    ),
+    tool(
+        "syllables",
+        "Syllable counter",
+        "Syllables per word, and in all.",
+        syllable_count,
+    ),
+    tool(
+        "passive",
+        "Passive voice finder",
+        "Sentences that seem to use the passive voice.",
+        passive,
+    ),
+    tool(
+        "adverbs",
+        "Adverb highlighter",
+        "The -ly adverbs, and how many there are.",
+        adverbs,
+    ),
+    tool(
+        "cliches",
+        "Cliché finder",
+        "Common clichés and buzzwords in the text.",
+        cliches,
+    ),
+    tool(
+        "repetition",
+        "Repetition finder",
+        "Words and phrases used again and again.",
+        repetition,
+    )
+    .slider("Words per phrase", 1.0, 5.0, 1.0),
+    tool(
+        "sentence-length",
+        "Sentence length",
+        "Words per sentence, flagging the long ones.",
+        sentence_length,
+    )
+    .slider("Long after", 10.0, 50.0, 25.0),
+    tool(
+        "transitions",
+        "Transition words",
+        "How many sentences use transition words.",
+        transitions,
+    ),
+    tool(
+        "lexical-density",
+        "Lexical density",
+        "The share of content words, and of distinct words.",
+        lexical_density,
+    ),
+    tool(
+        "keyword-density",
+        "Keyword density",
+        "The most used words and phrases, as a share of the text.",
+        keyword_density,
+    )
+    .checks(&["Skip common words"]),
+    tool(
+        "keywords",
+        "Keyword extractor",
+        "The words that best describe the text.",
+        keywords,
+    )
+    .slider("Keywords", 1.0, 30.0, 10.0),
+    tool(
+        "tokens",
+        "Token counter",
+        "An estimate of the tokens a language model would see.",
+        tokens,
+    ),
+    tool(
+        "citation",
+        "Citation formatter",
+        "APA, MLA, Chicago or Harvard references.",
+        citation,
+    )
+    .form()
+    .fields(&[
+        ("Authors (separated by ;)", "Ada Lovelace; Charles Babbage"),
+        ("Title", "Sketch of the Analytical Engine"),
+        ("Year", "1843"),
+        ("Publisher or site", "Taylor's Scientific Memoirs"),
+        ("URL", ""),
+    ])
+    .selects(&[(
+        "Style",
+        &[
+            ("apa", "APA"),
+            ("mla", "MLA"),
+            ("chicago", "Chicago"),
+            ("harvard", "Harvard"),
+        ],
+    )]),
 ];
 
 pub const EXTRACT: &[Tool] = &[
-    tool("capitalized", "Extract capitalized words", "Words starting with a capital, or in all capitals.", capitalized)
-        .selects(&[("Words", &[("first", "Starting with a capital"), ("caps", "IN ALL CAPITALS")])])
-        .checks(UNIQUE),
-    tool("dates", "Extract dates", "Dates in many formats: 2024-03-05, 5/3/2024, March 5th, 2024…", dates).checks(UNIQUE),
-    tool("emails", "Extract emails", "Email addresses in any text, CSV, HTML or JSON.", emails).checks(UNIQUE),
-    tool("quotes", "Extract quoted text", "What is between quotation marks.", quotes)
-        .selects(&[("Quotes", &[("all", "Any"), ("double", "Double"), ("single", "Single")])])
-        .checks(UNIQUE),
-    tool("urls", "Extract URLs", "Web addresses in any text, CSV, HTML or JSON.", urls).checks(UNIQUE),
-    tool("hashtags", "Extract hashtags", "The #hashtags in a text.", hashtags).checks(UNIQUE),
-    tool("ips", "Extract IP addresses", "IPv4 and IPv6 addresses.", ips)
-        .selects(&[("Addresses", &[("all", "IPv4 and IPv6"), ("v4", "IPv4"), ("v6", "IPv6")])])
-        .checks(UNIQUE),
-    tool("hidden", "Remove hidden characters", "Zero-width, invisible and odd space characters, as AI text often has.", hidden),
-    tool("special", "Remove special characters", "Keeps only letters, digits and the characters you choose.", special).selects(&[(
+    tool(
+        "capitalized",
+        "Extract capitalized words",
+        "Words starting with a capital, or in all capitals.",
+        capitalized,
+    )
+    .selects(&[(
+        "Words",
+        &[
+            ("first", "Starting with a capital"),
+            ("caps", "IN ALL CAPITALS"),
+        ],
+    )])
+    .checks(UNIQUE),
+    tool(
+        "dates",
+        "Extract dates",
+        "Dates in many formats: 2024-03-05, 5/3/2024, March 5th, 2024…",
+        dates,
+    )
+    .checks(UNIQUE),
+    tool(
+        "emails",
+        "Extract emails",
+        "Email addresses in any text, CSV, HTML or JSON.",
+        emails,
+    )
+    .checks(UNIQUE),
+    tool(
+        "quotes",
+        "Extract quoted text",
+        "What is between quotation marks.",
+        quotes,
+    )
+    .selects(&[(
+        "Quotes",
+        &[("all", "Any"), ("double", "Double"), ("single", "Single")],
+    )])
+    .checks(UNIQUE),
+    tool(
+        "urls",
+        "Extract URLs",
+        "Web addresses in any text, CSV, HTML or JSON.",
+        urls,
+    )
+    .checks(UNIQUE),
+    tool(
+        "hashtags",
+        "Extract hashtags",
+        "The #hashtags in a text.",
+        hashtags,
+    )
+    .checks(UNIQUE),
+    tool(
+        "ips",
+        "Extract IP addresses",
+        "IPv4 and IPv6 addresses.",
+        ips,
+    )
+    .selects(&[(
+        "Addresses",
+        &[("all", "IPv4 and IPv6"), ("v4", "IPv4"), ("v6", "IPv6")],
+    )])
+    .checks(UNIQUE),
+    tool(
+        "hidden",
+        "Remove hidden characters",
+        "Zero-width, invisible and odd space characters, as AI text often has.",
+        hidden,
+    ),
+    tool(
+        "special",
+        "Remove special characters",
+        "Keeps only letters, digits and the characters you choose.",
+        special,
+    )
+    .selects(&[(
         "Keep",
         &[
             ("alnum", "Letters, digits and spaces"),
@@ -1366,9 +2166,26 @@ pub const EXTRACT: &[Tool] = &[
             ("ascii", "ASCII letters, digits and spaces"),
         ],
     )]),
-    tool("extract-numbers", "Extract numbers", "The numbers in a text.", extract_numbers)
-        .selects(&[("Separate with", &[("newline", "Lines"), ("comma", "Commas"), ("space", "Spaces")])]),
-    tool("remove-numbers", "Remove numbers", "Deletes every digit.", remove_numbers),
+    tool(
+        "extract-numbers",
+        "Extract numbers",
+        "The numbers in a text.",
+        extract_numbers,
+    )
+    .selects(&[(
+        "Separate with",
+        &[
+            ("newline", "Lines"),
+            ("comma", "Commas"),
+            ("space", "Spaces"),
+        ],
+    )]),
+    tool(
+        "remove-numbers",
+        "Remove numbers",
+        "Deletes every digit.",
+        remove_numbers,
+    ),
 ];
 
 #[cfg(test)]
@@ -1398,7 +2215,11 @@ mod tests {
         assert_eq!(run(urls, t, ""), "https://x.org/a?b=1");
         assert_eq!(run(hashtags, t, ""), "#news");
         assert_eq!(
-            run(ips, "from 10.0.0.1, to ::1 and fe80::1ff:fe23:4567:890a not 999.1.1.1", ""),
+            run(
+                ips,
+                "from 10.0.0.1, to ::1 and fe80::1ff:fe23:4567:890a not 999.1.1.1",
+                ""
+            ),
             "10.0.0.1\n::1\nfe80::1ff:fe23:4567:890a"
         );
         assert_eq!(
@@ -1414,18 +2235,38 @@ mod tests {
     #[test]
     fn cleaning() {
         assert_eq!(run(remove_accents, "Ça déjà Straße", ""), "Ca deja Strasse");
+        assert_eq!(
+            run(ascii, "Ça déjà, Привет, 北亰", ""),
+            "Ca deja, Privet, Bei Jing"
+        );
         assert_eq!(run(remove_emojis, "hi 👋🏽 there ❤️!", ""), "hi there !");
-        assert_eq!(run(hidden, "a\u{200b}b\u{a0}c", ""), "ab c\n\n2 hidden characters found");
+        assert_eq!(
+            run(hidden, "a\u{200b}b\u{a0}c", ""),
+            "ab c\n\n2 hidden characters found"
+        );
         assert_eq!(run(remove_extra_spaces, "  a   b ,c ", "text"), "a b,c");
-        assert_eq!(run(sort_numbers, "10, -2, 3.5 and 1,000", "asc"), "-2\n3.5\n10\n1,000");
+        assert_eq!(
+            run(sort_numbers, "10, -2, 3.5 and 1,000", "asc"),
+            "-2\n3.5\n10\n1,000"
+        );
         assert_eq!(run(upside_down, "ab", ""), "qɐ");
     }
 
     #[test]
     fn counts() {
         let out = run(counter, "rose rose tulip fern", "");
-        assert!(out.lines().any(|l| l.starts_with("Words:") && l.trim_end().ends_with('4')));
-        assert!(out.lines().any(|l| l.starts_with("Unique words:") && l.trim_end().ends_with('3')));
-        assert!(out.lines().any(|l| l.starts_with("rose ") && l.ends_with(" 2×")), "{out}");
+        assert!(
+            out.lines()
+                .any(|l| l.starts_with("Words:") && l.trim_end().ends_with('4'))
+        );
+        assert!(
+            out.lines()
+                .any(|l| l.starts_with("Unique words:") && l.trim_end().ends_with('3'))
+        );
+        assert!(
+            out.lines()
+                .any(|l| l.starts_with("rose ") && l.ends_with(" 2×")),
+            "{out}"
+        );
     }
 }

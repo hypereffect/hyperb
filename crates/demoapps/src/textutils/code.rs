@@ -1,8 +1,8 @@
 //! Tools on code: CSS, JavaScript, JSON and SQL formatting, JavaScript
 //! objects to JSON, and JSON to CSV.
 
-use super::Output;
 use super::Opts;
+use super::Output;
 use hypereffect::serde_json::{self, Map, Value};
 use serde::Serialize;
 
@@ -13,7 +13,10 @@ pub fn json_text(v: &Value, indent: usize) -> String {
     }
     let pad = vec![b' '; indent];
     let mut buf = Vec::new();
-    let mut ser = serde_json::Serializer::with_formatter(&mut buf, serde_json::ser::PrettyFormatter::with_indent(&pad));
+    let mut ser = serde_json::Serializer::with_formatter(
+        &mut buf,
+        serde_json::ser::PrettyFormatter::with_indent(&pad),
+    );
     v.serialize(&mut ser).expect("JSON serializes");
     String::from_utf8(buf).expect("JSON is UTF-8")
 }
@@ -69,7 +72,11 @@ fn pieces<'a>(src: &'a str, quotes: &[char], line: Option<&str>) -> Vec<Piece<'a
             if start < i {
                 out.push(Piece::Code(&src[start..i]));
             }
-            out.push(if comment { Piece::Comment(&src[i..end]) } else { Piece::Quoted(&src[i..end]) });
+            out.push(if comment {
+                Piece::Comment(&src[i..end])
+            } else {
+                Piece::Quoted(&src[i..end])
+            });
             start = end;
             while chars.peek().is_some_and(|(j, _)| *j < end) {
                 chars.next();
@@ -105,7 +112,13 @@ fn squeeze(code: &str, tight: &str) -> String {
 
 /// Breaks code into lines at braces and semicolons, indenting blocks.
 /// `parens` keeps semicolons inside parentheses on the line (as in a `for`).
-fn blocks(src: &str, indent: usize, quotes: &[char], line_comment: Option<&str>, after_comma: bool) -> String {
+fn blocks(
+    src: &str,
+    indent: usize,
+    quotes: &[char],
+    line_comment: Option<&str>,
+    after_comma: bool,
+) -> String {
     let pad = |depth: usize| " ".repeat(depth * indent);
     let mut lines: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -190,7 +203,9 @@ fn blocks(src: &str, indent: usize, quotes: &[char], line_comment: Option<&str>,
     for l in lines {
         let t = l.trim_start();
         if let Some(prev) = merged.last_mut() {
-            if prev.trim() == "}" && (t.starts_with(';') || t.starts_with(',') || t.starts_with(')')) {
+            if prev.trim() == "}"
+                && (t.starts_with(';') || t.starts_with(',') || t.starts_with(')'))
+            {
                 prev.push_str(t);
                 continue;
             }
@@ -208,8 +223,10 @@ fn minify(src: &str, quotes: &[char], line_comment: Option<&str>, tight: &str) -
     // Whether `next` starts something that needs a space after `prev` when
     // two code pieces meet: `return` + `"x"`, or `let` + `a`.
     let separates = |prev: char, next: char| {
-        let operand_end = prev.is_alphanumeric() || matches!(prev, '_' | '$' | '"' | '\'' | '`' | ')' | ']' | '}');
-        let operand_start = next.is_alphanumeric() || matches!(next, '_' | '$' | '"' | '\'' | '`' | '(' | '[' | '{');
+        let operand_end = prev.is_alphanumeric()
+            || matches!(prev, '_' | '$' | '"' | '\'' | '`' | ')' | ']' | '}');
+        let operand_start = next.is_alphanumeric()
+            || matches!(next, '_' | '$' | '"' | '\'' | '`' | '(' | '[' | '{');
         operand_end && operand_start && !matches!(prev, ';' | ',' | '{' | '}')
     };
     let mut out = String::new();
@@ -245,7 +262,9 @@ fn minify(src: &str, quotes: &[char], line_comment: Option<&str>, tight: &str) -
 
 pub fn css(text: &str, o: &mut Opts) -> Result<Output, String> {
     if o.mode == "minify" {
-        return Ok(minify(text, &['"', '\''], None, "{}:;,>+~()").replace(";}", "}").into());
+        return Ok(minify(text, &['"', '\''], None, "{}:;,>+~()")
+            .replace(";}", "}")
+            .into());
     }
     let formatted = blocks(text, o.number, &['"', '\''], None, false);
     // One space after a property's colon, and an empty line between rules.
@@ -265,7 +284,9 @@ pub fn css(text: &str, o: &mut Opts) -> Result<Output, String> {
         }
         let t = if !t.ends_with('{') && !t.starts_with('@') {
             match t.split_once(':') {
-                Some((k, v)) if !k.contains(['(', '"', '\'']) => format!("{}: {}", k.trim(), v.trim()),
+                Some((k, v)) if !k.contains(['(', '"', '\'']) => {
+                    format!("{}: {}", k.trim(), v.trim())
+                }
                 _ => t.replace(" ,", ","),
             }
         } else {
@@ -300,13 +321,14 @@ pub fn javascript(text: &str, o: &mut Opts) -> Result<Output, String> {
             out
         })
         .collect::<Vec<_>>()
-        .join("\n").into())
+        .join("\n")
+        .into())
 }
 
 fn space_operators(code: &str) -> String {
     const OPS: [&str; 22] = [
-        "===", "!==", "=>", "==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "??", "=", "<", ">",
-        "+", "-", "*", "/", "?",
+        "===", "!==", "=>", "==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "??", "=",
+        "<", ">", "+", "-", "*", "/", "?",
     ];
     let mut out = String::new();
     let mut rest = code;
@@ -319,7 +341,8 @@ fn space_operators(code: &str) -> String {
         if let Some(op) = OPS.iter().find(|op| rest.starts_with(**op)) {
             // `++`, `--`, unary minus and `a.b` stay as they are.
             let prev = out.trim_end().chars().last();
-            let unary = matches!(*op, "-" | "+") && (prev.is_none() || prev.is_some_and(|p| "=(,:?[!&|{;".contains(p)));
+            let unary = matches!(*op, "-" | "+")
+                && (prev.is_none() || prev.is_some_and(|p| "=(,:?[!&|{;".contains(p)));
             let doubled = (*op == "+" || *op == "-") && rest[1..].starts_with(*op);
             if unary || doubled {
                 let take = if doubled { 2 } else { 1 };
@@ -340,14 +363,62 @@ fn space_operators(code: &str) -> String {
 }
 
 const SQL_BREAK: [&str; 20] = [
-    "SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "OFFSET", "UNION ALL", "UNION",
-    "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "JOIN",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "GROUP BY",
+    "ORDER BY",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "UNION ALL",
+    "UNION",
+    "INSERT INTO",
+    "VALUES",
+    "UPDATE",
+    "SET",
+    "DELETE FROM",
+    "LEFT JOIN",
+    "RIGHT JOIN",
+    "INNER JOIN",
+    "JOIN",
     "RETURNING",
 ];
 const SQL_WORDS: [&str; 34] = [
-    "SELECT", "FROM", "WHERE", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "ALL", "INSERT",
-    "INTO", "VALUES", "UPDATE", "SET", "DELETE", "LEFT", "RIGHT", "INNER", "OUTER", "JOIN", "ON", "AND", "OR",
-    "NOT", "AS", "IN", "IS", "NULL", "DISTINCT", "ASC", "DESC", "RETURNING",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "GROUP",
+    "BY",
+    "ORDER",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "UNION",
+    "ALL",
+    "INSERT",
+    "INTO",
+    "VALUES",
+    "UPDATE",
+    "SET",
+    "DELETE",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "OUTER",
+    "JOIN",
+    "ON",
+    "AND",
+    "OR",
+    "NOT",
+    "AS",
+    "IN",
+    "IS",
+    "NULL",
+    "DISTINCT",
+    "ASC",
+    "DESC",
+    "RETURNING",
 ];
 
 pub fn sql(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -366,7 +437,11 @@ pub fn sql(text: &str, o: &mut Opts) -> Result<Output, String> {
                     }
                     if !word.is_empty() {
                         let upper = word.to_uppercase();
-                        flat.push_str(if o.flag && SQL_WORDS.contains(&upper.as_str()) { &upper } else { &word });
+                        flat.push_str(if o.flag && SQL_WORDS.contains(&upper.as_str()) {
+                            &upper
+                        } else {
+                            &word
+                        });
                         word.clear();
                     }
                     flat.push(ch);
@@ -376,7 +451,10 @@ pub fn sql(text: &str, o: &mut Opts) -> Result<Output, String> {
         }
     }
     let flat = squeeze(&flat, "");
-    let flat = flat.replace(" ,", ",").replace("( ", "(").replace(" )", ")");
+    let flat = flat
+        .replace(" ,", ",")
+        .replace("( ", "(")
+        .replace(" )", ")");
     if o.mode == "minify" {
         return Ok(flat.trim().to_owned().into());
     }
@@ -414,7 +492,10 @@ pub fn sql(text: &str, o: &mut Opts) -> Result<Output, String> {
             continue;
         }
         let is = |w: &str| {
-            at_word && rest.len() > w.len() && rest[..w.len()].eq_ignore_ascii_case(w) && rest[w.len()..].starts_with(' ')
+            at_word
+                && rest.len() > w.len()
+                && rest[..w.len()].eq_ignore_ascii_case(w)
+                && rest[w.len()..].starts_with(' ')
         };
         if (is("AND") || is("OR")) && clause != "SELECT" {
             let t = out.trim_end().len();
@@ -461,9 +542,13 @@ impl Js<'_> {
                 self.i += 1;
             }
             if self.src[self.i..].starts_with("//") {
-                self.i = self.src[self.i..].find('\n').map_or(self.s.len(), |j| self.i + j);
+                self.i = self.src[self.i..]
+                    .find('\n')
+                    .map_or(self.s.len(), |j| self.i + j);
             } else if self.src[self.i..].starts_with("/*") {
-                self.i = self.src[self.i + 2..].find("*/").map_or(self.s.len(), |j| self.i + j + 4);
+                self.i = self.src[self.i + 2..]
+                    .find("*/")
+                    .map_or(self.s.len(), |j| self.i + j + 4);
             } else {
                 return;
             }
@@ -508,7 +593,9 @@ impl Js<'_> {
                 Some('f') => out.push('\u{c}'),
                 Some('0') => out.push('\0'),
                 Some('u') => {
-                    let hex: String = (0..4).filter_map(|_| chars.next().map(|(_, h)| h)).collect();
+                    let hex: String = (0..4)
+                        .filter_map(|_| chars.next().map(|(_, h)| h))
+                        .collect();
                     let c = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32);
                     out.push(c.unwrap_or('\u{fffd}'));
                 }
@@ -522,7 +609,11 @@ impl Js<'_> {
 
     fn ident(&mut self) -> &str {
         let start = self.i;
-        while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$' || *c >= 0x80) {
+        while self
+            .s
+            .get(self.i)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$' || *c >= 0x80)
+        {
             self.i += 1;
         }
         &self.src[start..self.i]
@@ -582,17 +673,22 @@ impl Js<'_> {
                     "null" | "undefined" | "NaN" | "Infinity" => Ok(Value::Null),
                     _ => {
                         self.i = start;
-                        while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphanumeric() || b"+-.".contains(c)) {
+                        while self
+                            .s
+                            .get(self.i)
+                            .is_some_and(|c| c.is_ascii_alphanumeric() || b"+-.".contains(c))
+                        {
                             self.i += 1;
                         }
                         let n = &self.src[start..self.i];
                         let parsed = if let Some(h) = n.strip_prefix("0x") {
                             i64::from_str_radix(h, 16).ok().map(Value::from)
                         } else {
-                            n.parse::<i64>()
-                                .ok()
-                                .map(Value::from)
-                                .or_else(|| n.parse::<f64>().ok().and_then(|f| serde_json::Number::from_f64(f).map(Value::Number)))
+                            n.parse::<i64>().ok().map(Value::from).or_else(|| {
+                                n.parse::<f64>().ok().and_then(|f| {
+                                    serde_json::Number::from_f64(f).map(Value::Number)
+                                })
+                            })
                         };
                         match parsed {
                             Some(v) => Ok(v),
@@ -617,7 +713,11 @@ pub fn lenient_json(text: &str) -> Result<Value, String> {
         Some(i) if t[..i].trim_end().ends_with('=') => &t[i..],
         _ => t,
     };
-    let mut p = Js { s: t.as_bytes(), src: t, i: 0 };
+    let mut p = Js {
+        s: t.as_bytes(),
+        src: t,
+        i: 0,
+    };
     let v = p.value()?;
     p.skip();
     if p.i < t.len() {
@@ -635,7 +735,11 @@ fn flatten(prefix: &str, v: &Value, out: &mut Vec<(String, String)>) {
     match v {
         Value::Object(m) => {
             for (k, v) in m {
-                let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
                 flatten(&key, v, out);
             }
         }
@@ -693,19 +797,28 @@ pub fn json_to_csv(text: &str, o: &mut Opts) -> Result<Output, String> {
             s.to_owned()
         }
     };
-    let mut out = vec![columns.iter().map(|c| cell(c)).collect::<Vec<_>>().join(sep)];
+    let mut out = vec![
+        columns
+            .iter()
+            .map(|c| cell(c))
+            .collect::<Vec<_>>()
+            .join(sep),
+    ];
     for row in &flat {
         out.push(
             columns
                 .iter()
-                .map(|c| row.iter().find(|(k, _)| k == c).map_or(String::new(), |(_, v)| cell(v)))
+                .map(|c| {
+                    row.iter()
+                        .find(|(k, _)| k == c)
+                        .map_or(String::new(), |(_, v)| cell(v))
+                })
                 .collect::<Vec<_>>()
                 .join(sep),
         );
     }
     Ok(out.join("\n").into())
 }
-
 
 use super::{Tool, tool};
 
@@ -716,27 +829,52 @@ pub const FORMAT: &[Tool] = &[
         .text("CSS")
         .selects(&[("Layout", LAYOUT)])
         .slider("Indent", 1.0, 8.0, 2.0),
-    tool("html", "HTML formatter", "Indents HTML, or minifies it.", super::markup::html)
-        .text("HTML")
-        .selects(&[("Layout", LAYOUT)])
-        .slider("Indent", 1.0, 8.0, 2.0),
-    tool("javascript", "JavaScript formatter", "Indents JavaScript, or minifies it. Also unminifies code.", javascript)
-        .text("JavaScript")
-        .selects(&[("Layout", LAYOUT)])
-        .slider("Indent", 1.0, 8.0, 2.0),
-    tool("json", "JSON formatter", "Pretty-prints JSON with any indent, or puts it on one line. Also validates it.", json)
-        .text("JSON")
-        .selects(&[("Layout", LAYOUT)])
-        .slider("Indent", 1.0, 8.0, 2.0),
-    tool("sql", "SQL formatter", "Lays out SQL queries a clause per line.", sql)
-        .text("SQL")
-        .selects(&[("Layout", LAYOUT)])
-        .checks(&["Keywords in capitals"])
-        .slider("Indent", 1.0, 8.0, 2.0),
-    tool("xml", "XML formatter", "Indents XML, or minifies it. Also checks that it is well formed.", super::markup::xml)
-        .text("XML")
-        .selects(&[("Layout", LAYOUT)])
-        .slider("Indent", 1.0, 8.0, 2.0),
+    tool(
+        "html",
+        "HTML formatter",
+        "Indents HTML, or minifies it.",
+        super::markup::html,
+    )
+    .text("HTML")
+    .selects(&[("Layout", LAYOUT)])
+    .slider("Indent", 1.0, 8.0, 2.0),
+    tool(
+        "javascript",
+        "JavaScript formatter",
+        "Indents JavaScript, or minifies it. Also unminifies code.",
+        javascript,
+    )
+    .text("JavaScript")
+    .selects(&[("Layout", LAYOUT)])
+    .slider("Indent", 1.0, 8.0, 2.0),
+    tool(
+        "json",
+        "JSON formatter",
+        "Pretty-prints JSON with any indent, or puts it on one line. Also validates it.",
+        json,
+    )
+    .text("JSON")
+    .selects(&[("Layout", LAYOUT)])
+    .slider("Indent", 1.0, 8.0, 2.0),
+    tool(
+        "sql",
+        "SQL formatter",
+        "Lays out SQL queries a clause per line.",
+        sql,
+    )
+    .text("SQL")
+    .selects(&[("Layout", LAYOUT)])
+    .checks(&["Keywords in capitals"])
+    .slider("Indent", 1.0, 8.0, 2.0),
+    tool(
+        "xml",
+        "XML formatter",
+        "Indents XML, or minifies it. Also checks that it is well formed.",
+        super::markup::xml,
+    )
+    .text("XML")
+    .selects(&[("Layout", LAYOUT)])
+    .slider("Indent", 1.0, 8.0, 2.0),
 ];
 
 #[cfg(test)]
@@ -754,7 +892,10 @@ mod tests {
 
     #[test]
     fn formats_json() {
-        assert_eq!(run(json, r#"{"a":[1,2]}"#, "beautify"), "{\n  \"a\": [\n    1,\n    2\n  ]\n}");
+        assert_eq!(
+            run(json, r#"{"a":[1,2]}"#, "beautify"),
+            "{\n  \"a\": [\n    1,\n    2\n  ]\n}"
+        );
         assert_eq!(run(json, "{ \"a\" : 1 }", "minify"), r#"{"a":1}"#);
     }
 
@@ -764,13 +905,20 @@ mod tests {
             run(css, "a{color:red;margin:0 auto}b , i{x:1}", "beautify"),
             "a {\n  color: red;\n  margin: 0 auto\n}\n\nb, i {\n  x: 1\n}"
         );
-        assert_eq!(run(css, "a {\n  color : red ;\n}\n/* c */", "minify"), "a{color:red}");
+        assert_eq!(
+            run(css, "a {\n  color : red ;\n}\n/* c */", "minify"),
+            "a{color:red}"
+        );
     }
 
     #[test]
     fn formats_javascript() {
         assert_eq!(
-            run(javascript, "function f(a,b){if(a===b){return \"x;y\"}else{return a+b;}}", "beautify"),
+            run(
+                javascript,
+                "function f(a,b){if(a===b){return \"x;y\"}else{return a+b;}}",
+                "beautify"
+            ),
             "function f(a, b) {\n  if(a === b) {\n    return \"x;y\"\n  } else {\n    return a + b;\n  }\n}"
         );
         assert_eq!(
@@ -782,7 +930,11 @@ mod tests {
     #[test]
     fn formats_sql() {
         assert_eq!(
-            run(sql, "select a, b from t where x = 'a, b' and y > 2 order by a", "beautify"),
+            run(
+                sql,
+                "select a, b from t where x = 'a, b' and y > 2 order by a",
+                "beautify"
+            ),
             "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  x = 'a, b'\n  AND y > 2\nORDER BY\n  a"
         );
     }
@@ -790,7 +942,11 @@ mod tests {
     #[test]
     fn javascript_objects() {
         assert_eq!(
-            run(js_object, "const o = { a: 'x', \"b\": [1, 2.5,], // c\n c: undefined, d: true };", ""),
+            run(
+                js_object,
+                "const o = { a: 'x', \"b\": [1, 2.5,], // c\n c: undefined, d: true };",
+                ""
+            ),
             "{\n  \"a\": \"x\",\n  \"b\": [\n    1,\n    2.5\n  ],\n  \"c\": null,\n  \"d\": true\n}"
         );
         let mut rng = Rng(1);
@@ -800,7 +956,11 @@ mod tests {
     #[test]
     fn csv() {
         assert_eq!(
-            run(json_to_csv, r#"[{"n":"a, b","x":{"y":1}},{"n":"c","z":[1,2]}]"#, "comma"),
+            run(
+                json_to_csv,
+                r#"[{"n":"a, b","x":{"y":1}},{"n":"c","z":[1,2]}]"#,
+                "comma"
+            ),
             "n,x.y,z\n\"a, b\",1,\nc,,\"1, 2\""
         );
     }

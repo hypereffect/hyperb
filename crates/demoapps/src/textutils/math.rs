@@ -71,7 +71,10 @@ impl Parser<'_> {
         while self.s.get(j).is_some_and(|c| c.is_ascii_whitespace()) {
             j += 1;
         }
-        !matches!(self.s.get(j), Some(b'0'..=b'9' | b'.' | b'(' | b'a'..=b'z' | b'A'..=b'Z'))
+        !matches!(
+            self.s.get(j),
+            Some(b'0'..=b'9' | b'.' | b'(' | b'a'..=b'z' | b'A'..=b'Z')
+        )
     }
 
     fn unary(&mut self) -> Result<Expr, String> {
@@ -119,25 +122,45 @@ impl Parser<'_> {
             }
             Some(b'0'..=b'9' | b'.') => {
                 let start = self.i;
-                while self.s.get(self.i).is_some_and(|c| c.is_ascii_digit() || *c == b'.' || *c == b'_') {
+                while self
+                    .s
+                    .get(self.i)
+                    .is_some_and(|c| c.is_ascii_digit() || *c == b'.' || *c == b'_')
+                {
                     self.i += 1;
                 }
                 // An exponent, but not the start of a name such as `e`.
-                if matches!(self.s.get(self.i), Some(b'e' | b'E')) && self.s.get(self.i + 1).is_some_and(|c| c.is_ascii_digit() || ((*c == b'-' || *c == b'+') && self.s.get(self.i + 2).is_some_and(u8::is_ascii_digit))) {
+                if matches!(self.s.get(self.i), Some(b'e' | b'E'))
+                    && self.s.get(self.i + 1).is_some_and(|c| {
+                        c.is_ascii_digit()
+                            || ((*c == b'-' || *c == b'+')
+                                && self.s.get(self.i + 2).is_some_and(u8::is_ascii_digit))
+                    })
+                {
                     self.i += 2;
                     while self.s.get(self.i).is_some_and(u8::is_ascii_digit) {
                         self.i += 1;
                     }
                 }
-                let t = std::str::from_utf8(&self.s[start..self.i]).unwrap().replace('_', "");
-                t.parse().map(Expr::Num).map_err(|_| format!("“{t}” is not a number."))
+                let t = std::str::from_utf8(&self.s[start..self.i])
+                    .unwrap()
+                    .replace('_', "");
+                t.parse()
+                    .map(Expr::Num)
+                    .map_err(|_| format!("“{t}” is not a number."))
             }
             Some(b'a'..=b'z' | b'A'..=b'Z') => {
                 let start = self.i;
-                while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+                while self
+                    .s
+                    .get(self.i)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+                {
                     self.i += 1;
                 }
-                let name = std::str::from_utf8(&self.s[start..self.i]).unwrap().to_owned();
+                let name = std::str::from_utf8(&self.s[start..self.i])
+                    .unwrap()
+                    .to_owned();
                 if self.peek() == Some(b'(') {
                     self.i += 1;
                     let mut args = Vec::new();
@@ -165,8 +188,16 @@ impl Parser<'_> {
 }
 
 fn parse_expr(s: &str) -> Result<Expr, String> {
-    let s = s.replace(['×', '·'], "*").replace('÷', "/").replace('−', "-").replace('π', "pi").replace('√', "sqrt");
-    let mut p = Parser { s: s.as_bytes(), i: 0 };
+    let s = s
+        .replace(['×', '·'], "*")
+        .replace('÷', "/")
+        .replace('−', "-")
+        .replace('π', "pi")
+        .replace('√', "sqrt");
+    let mut p = Parser {
+        s: s.as_bytes(),
+        i: 0,
+    };
     let e = p.expr()?;
     if p.peek().is_some() {
         return Err(format!("Unexpected “{}”.", &s[p.i..]));
@@ -192,7 +223,10 @@ fn eval<N: Num>(e: &Expr, vars: &[(String, N)], degrees: bool) -> Result<N, Stri
         Expr::Bin(op, a, b) => N::bin(*op, eval(a, vars, degrees)?, eval(b, vars, degrees)?),
         Expr::Postfix(op, a) => N::postfix(*op, eval(a, vars, degrees)?),
         Expr::Call(name, args) => {
-            let args = args.iter().map(|a| eval(a, vars, degrees)).collect::<Result<Vec<_>, _>>()?;
+            let args = args
+                .iter()
+                .map(|a| eval(a, vars, degrees))
+                .collect::<Result<Vec<_>, _>>()?;
             N::call(name, args, degrees)
         }
     }
@@ -208,8 +242,15 @@ fn gamma(x: f64) -> f64 {
 /// The log of the gamma function, by Lanczos.
 pub fn ln_gamma(x: f64) -> f64 {
     const G: [f64; 9] = [
-        0.999_999_999_999_809_9, 676.5203681218851, -1259.1392167224028, 771.323_428_777_653_1, -176.615_029_162_140_6,
-        12.507343278686905, -0.13857109526572012, 9.984_369_578_019_572e-6, 1.5056327351493116e-7,
+        0.999_999_999_999_809_9,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.984_369_578_019_572e-6,
+        1.5056327351493116e-7,
     ];
     let x = x - 1.0;
     let t = x + 7.5;
@@ -224,7 +265,10 @@ fn arity(name: &str, args: &[impl Sized], n: usize) -> Result<(), String> {
     if args.len() == n {
         Ok(())
     } else {
-        Err(format!("{name}() takes {n} argument{}.", if n == 1 { "" } else { "s" }))
+        Err(format!(
+            "{name}() takes {n} argument{}.",
+            if n == 1 { "" } else { "s" }
+        ))
     }
 }
 
@@ -264,13 +308,20 @@ impl Num for f64 {
     }
 
     fn postfix(op: char, a: f64) -> Result<f64, String> {
-        Ok(if op == '%' { a / 100.0 } else { gamma(a + 1.0).round_if_whole(a) })
+        Ok(if op == '%' {
+            a / 100.0
+        } else {
+            gamma(a + 1.0).round_if_whole(a)
+        })
     }
 
     fn call(name: &str, a: Vec<f64>, degrees: bool) -> Result<f64, String> {
         let to = |x: f64| if degrees { x.to_radians() } else { x };
         let from = |x: f64| if degrees { x.to_degrees() } else { x };
-        if matches!(name, "min" | "max" | "sum" | "avg" | "mean" | "gcd" | "lcm" | "hypot") {
+        if matches!(
+            name,
+            "min" | "max" | "sum" | "avg" | "mean" | "gcd" | "lcm" | "hypot"
+        ) {
             if a.is_empty() {
                 return Err(format!("{name}() needs numbers."));
             }
@@ -280,11 +331,19 @@ impl Num for f64 {
                 "sum" => a.iter().sum(),
                 "hypot" => a.iter().map(|x| x * x).sum::<f64>().sqrt(),
                 "gcd" => a.iter().map(|x| x.abs().round() as u128).fold(0, gcd) as f64,
-                "lcm" => a.iter().map(|x| x.abs().round() as u128).fold(1, |l, x| if x == 0 { 0 } else { l / gcd(l, x) * x }) as f64,
+                "lcm" => a
+                    .iter()
+                    .map(|x| x.abs().round() as u128)
+                    .fold(1, |l, x| if x == 0 { 0 } else { l / gcd(l, x) * x })
+                    as f64,
                 _ => a.iter().sum::<f64>() / a.len() as f64,
             });
         }
-        if matches!(name, "log" | "pow" | "root" | "atan2" | "ncr" | "npr" | "choose" | "mod" | "round") && a.len() == 2 {
+        if matches!(
+            name,
+            "log" | "pow" | "root" | "atan2" | "ncr" | "npr" | "choose" | "mod" | "round"
+        ) && a.len() == 2
+        {
             let (x, y) = (a[0], a[1]);
             return Ok(match name {
                 "log" => x.ln() / y.ln(),
@@ -342,7 +401,11 @@ trait RoundWhole {
 
 impl RoundWhole for f64 {
     fn round_if_whole(self, of: f64) -> f64 {
-        if of.fract() == 0.0 { self.round() } else { self }
+        if of.fract() == 0.0 {
+            self.round()
+        } else {
+            self
+        }
     }
 }
 
@@ -362,7 +425,12 @@ fn calculator(text: &str, o: &mut Opts) -> Result<Output, String> {
             continue;
         }
         let (name, expr) = match l.split_once('=') {
-            Some((n, e)) if n.trim().chars().all(|c| c.is_alphanumeric() || c == '_') && !n.trim().is_empty() => (Some(n.trim()), e),
+            Some((n, e))
+                if n.trim().chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && !n.trim().is_empty() =>
+            {
+                (Some(n.trim()), e)
+            }
             _ => (None, l),
         };
         let v = eval(&parse_expr(expr)?, &vars, degrees).map_err(|e| format!("{e} (in “{l}”)"))?;
@@ -370,10 +438,18 @@ fn calculator(text: &str, o: &mut Opts) -> Result<Output, String> {
         if let Some(n) = name {
             vars.push((n.to_owned(), v));
         }
-        let shown = if v.is_nan() { "not a number".into() } else { fmt(v, o.number.max(1)) };
+        let shown = if v.is_nan() {
+            "not a number".into()
+        } else {
+            fmt(v, o.number.max(1))
+        };
         out.push((l.to_owned(), shown));
     }
-    Ok(table(&out.iter().map(|(l, v)| (l.as_str(), v.clone())).collect::<Vec<_>>()))
+    Ok(table(
+        &out.iter()
+            .map(|(l, v)| (l.as_str(), v.clone()))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 // Exact fractions
@@ -413,14 +489,27 @@ impl Num for Ratio {
     fn bin(op: char, a: Ratio, b: Ratio) -> Result<Ratio, String> {
         let m = |x: i128, y: i128| x.checked_mul(y).ok_or_else(big);
         match op {
-            '+' => Ratio::new(m(a.0, b.1)?.checked_add(m(b.0, a.1)?).ok_or_else(big)?, m(a.1, b.1)?),
-            '-' => Ratio::new(m(a.0, b.1)?.checked_sub(m(b.0, a.1)?).ok_or_else(big)?, m(a.1, b.1)?),
+            '+' => Ratio::new(
+                m(a.0, b.1)?.checked_add(m(b.0, a.1)?).ok_or_else(big)?,
+                m(a.1, b.1)?,
+            ),
+            '-' => Ratio::new(
+                m(a.0, b.1)?.checked_sub(m(b.0, a.1)?).ok_or_else(big)?,
+                m(a.1, b.1)?,
+            ),
             '*' => Ratio::new(m(a.0, b.0)?, m(a.1, b.1)?),
             '/' => Ratio::new(m(a.0, b.1)?, m(a.1, b.0)?),
             '^' if b.1 == 1 && b.0.abs() < 128 => {
                 let e = b.0.unsigned_abs() as u32;
-                let (n, d) = (a.0.checked_pow(e).ok_or_else(big)?, a.1.checked_pow(e).ok_or_else(big)?);
-                if b.0 < 0 { Ratio::new(d, n) } else { Ratio::new(n, d) }
+                let (n, d) = (
+                    a.0.checked_pow(e).ok_or_else(big)?,
+                    a.1.checked_pow(e).ok_or_else(big)?,
+                );
+                if b.0 < 0 {
+                    Ratio::new(d, n)
+                } else {
+                    Ratio::new(n, d)
+                }
             }
             _ => Err("Exact fractions take + − × ÷ and whole powers only.".into()),
         }
@@ -446,12 +535,25 @@ fn mixed(r: Ratio) -> String {
     if r.1 == 1 || r.0.abs() < r.1 {
         return String::new();
     }
-    format!("{}{} {}/{}", if r.0 < 0 { "-" } else { "" }, r.0.abs() / r.1, r.0.abs() % r.1, r.1)
+    format!(
+        "{}{} {}/{}",
+        if r.0 < 0 { "-" } else { "" },
+        r.0.abs() / r.1,
+        r.0.abs() % r.1,
+        r.1
+    )
 }
 
 fn fractions(_: &str, o: &mut Opts) -> Result<Output, String> {
     let r: Ratio = eval(&parse_expr(o.field(0))?, &[], false)?;
-    let mut rows = vec![("Result", if r.1 == 1 { r.0.to_string() } else { format!("{}/{}", r.0, r.1) })];
+    let mut rows = vec![(
+        "Result",
+        if r.1 == 1 {
+            r.0.to_string()
+        } else {
+            format!("{}/{}", r.0, r.1)
+        },
+    )];
     if !mixed(r).is_empty() {
         rows.push(("Mixed number", mixed(r)));
     }
@@ -478,19 +580,36 @@ fn to_fraction(x: f64, eps: f64) -> (i128, i128) {
 fn simplify(_: &str, o: &mut Opts) -> Result<Output, String> {
     let s = o.field(0);
     if let Some((n, d)) = s.split_once('/') {
-        let (n, d) = (n.trim().parse::<i128>().map_err(|_| "Write a fraction such as 42/56.")?, d.trim().parse::<i128>().map_err(|_| "Write a fraction such as 42/56.")?);
+        let (n, d) = (
+            n.trim()
+                .parse::<i128>()
+                .map_err(|_| "Write a fraction such as 42/56.")?,
+            d.trim()
+                .parse::<i128>()
+                .map_err(|_| "Write a fraction such as 42/56.")?,
+        );
         let r = Ratio::new(n, d)?;
         let g = gcd(n.unsigned_abs(), d.unsigned_abs());
-        let mut rows = vec![("Simplified", format!("{}/{}", r.0, r.1)), ("Divided by", g.to_string()), ("Decimal", fmt(n as f64 / d as f64, 10))];
+        let mut rows = vec![
+            ("Simplified", format!("{}/{}", r.0, r.1)),
+            ("Divided by", g.to_string()),
+            ("Decimal", fmt(n as f64 / d as f64, 10)),
+        ];
         if !mixed(r).is_empty() {
             rows.push(("Mixed number", mixed(r)));
         }
-        rows.push(("Percent", format!("{}%", fmt(n as f64 / d as f64 * 100.0, 6))));
+        rows.push((
+            "Percent",
+            format!("{}%", fmt(n as f64 / d as f64 * 100.0, 6)),
+        ));
         return Ok(table(&rows));
     }
     let x = super::parse_number(s).ok_or("Write a fraction such as 42/56, or a decimal.")?;
     let (n, d) = to_fraction(x, 1e-9);
-    Ok(table(&[("Fraction", format!("{n}/{d}")), ("Mixed number", mixed(Ratio(n, d)))]))
+    Ok(table(&[
+        ("Fraction", format!("{n}/{d}")),
+        ("Mixed number", mixed(Ratio(n, d))),
+    ]))
 }
 
 // Complex numbers
@@ -507,7 +626,10 @@ impl C {
         if d == 0.0 {
             return Err("Division by zero.".into());
         }
-        Ok(C((self.0 * b.0 + self.1 * b.1) / d, (self.1 * b.0 - self.0 * b.1) / d))
+        Ok(C(
+            (self.0 * b.0 + self.1 * b.1) / d,
+            (self.1 * b.0 - self.0 * b.1) / d,
+        ))
     }
     fn abs(self) -> f64 {
         self.0.hypot(self.1)
@@ -573,7 +695,8 @@ impl Num for C {
             "ln" | "log" => z.ln(),
             "sin" => C(z.0.sin() * z.1.cosh(), z.0.cos() * z.1.sinh()),
             "cos" => C(z.0.cos() * z.1.cosh(), -z.0.sin() * z.1.sinh()),
-            "tan" => C(z.0.sin() * z.1.cosh(), z.0.cos() * z.1.sinh()).div(C(z.0.cos() * z.1.cosh(), -z.0.sin() * z.1.sinh()))?,
+            "tan" => C(z.0.sin() * z.1.cosh(), z.0.cos() * z.1.sinh())
+                .div(C(z.0.cos() * z.1.cosh(), -z.0.sin() * z.1.sinh()))?,
             "cis" => i.mul(z).exp(),
             _ => return Err(format!("There is no complex function “{name}”.")),
         })
@@ -586,7 +709,12 @@ fn show_complex(z: C) -> String {
     match (a, b) {
         (a, 0.0) => fmt(a, 10),
         (0.0, b) => format!("{}i", fmt(b, 10)),
-        (a, b) => format!("{} {} {}i", fmt(a, 10), if b < 0.0 { "−" } else { "+" }, fmt(b.abs(), 10)),
+        (a, b) => format!(
+            "{} {} {}i",
+            fmt(a, 10),
+            if b < 0.0 { "−" } else { "+" },
+            fmt(b.abs(), 10)
+        ),
     }
 }
 
@@ -595,8 +723,18 @@ fn complex(_: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(table(&[
         ("Result", show_complex(z)),
         ("Modulus", fmt(z.abs(), 10)),
-        ("Argument", format!("{} rad ({}°)", fmt(z.arg(), 10), fmt(z.arg().to_degrees(), 6))),
-        ("Polar", format!("{} ∠ {}°", fmt(z.abs(), 6), fmt(z.arg().to_degrees(), 4))),
+        (
+            "Argument",
+            format!(
+                "{} rad ({}°)",
+                fmt(z.arg(), 10),
+                fmt(z.arg().to_degrees(), 6)
+            ),
+        ),
+        (
+            "Polar",
+            format!("{} ∠ {}°", fmt(z.abs(), 6), fmt(z.arg().to_degrees(), 4)),
+        ),
         ("Conjugate", show_complex(C(z.0, -z.1))),
     ]))
 }
@@ -606,14 +744,31 @@ fn complex(_: &str, o: &mut Opts) -> Result<Output, String> {
 fn percentage(_: &str, o: &mut Opts) -> Result<Output, String> {
     let (a, b) = (o.num(0)?, o.num(1)?);
     let (label, value) = match o.mode {
-        "what-percent" => (format!("{} of {}", fmt(a, 6), fmt(b, 6)), format!("{}%", fmt(a / b * 100.0, 6))),
+        "what-percent" => (
+            format!("{} of {}", fmt(a, 6), fmt(b, 6)),
+            format!("{}%", fmt(a / b * 100.0, 6)),
+        ),
         "change" => (
-            format!("From {} to {}, a {}", fmt(a, 6), fmt(b, 6), if b >= a { "rise" } else { "fall" }),
+            format!(
+                "From {} to {}, a {}",
+                fmt(a, 6),
+                fmt(b, 6),
+                if b >= a { "rise" } else { "fall" }
+            ),
             format!("{}%", fmt(((b - a) / a * 100.0).abs(), 6)),
         ),
-        "whole" => (format!("{} is {}% of", fmt(a, 6), fmt(b, 6)), fmt(a / b * 100.0, 6)),
-        "difference" => (format!("Difference between {} and {}", fmt(a, 6), fmt(b, 6)), format!("{}%", fmt((a - b).abs() / ((a + b) / 2.0) * 100.0, 6))),
-        _ => (format!("{}% of {}", fmt(a, 6), fmt(b, 6)), fmt(a / 100.0 * b, 6)),
+        "whole" => (
+            format!("{} is {}% of", fmt(a, 6), fmt(b, 6)),
+            fmt(a / b * 100.0, 6),
+        ),
+        "difference" => (
+            format!("Difference between {} and {}", fmt(a, 6), fmt(b, 6)),
+            format!("{}%", fmt((a - b).abs() / ((a + b) / 2.0) * 100.0, 6)),
+        ),
+        _ => (
+            format!("{}% of {}", fmt(a, 6), fmt(b, 6)),
+            fmt(a / 100.0 * b, 6),
+        ),
     };
     Ok(table(&[(&label, value)]))
 }
@@ -630,32 +785,67 @@ fn average(text: &str, o: &mut Opts) -> Result<Output, String> {
             sum += x * w;
             weights += w;
         }
-        return Ok(table(&[("Weighted average", fmt(sum / weights, 6)), ("Total weight", fmt(weights, 6))]));
+        return Ok(table(&[
+            ("Weighted average", fmt(sum / weights, 6)),
+            ("Total weight", fmt(weights, 6)),
+        ]));
     }
     let v = numbers(text)?;
     let n = v.len() as f64;
     let mean = v.iter().sum::<f64>() / n;
-    let mut rows = vec![("Mean", fmt(mean, 6)), ("Median", fmt(median(&v), 6)), ("Mode", mode(&v))];
+    let mut rows = vec![
+        ("Mean", fmt(mean, 6)),
+        ("Median", fmt(median(&v), 6)),
+        ("Mode", mode(&v)),
+    ];
     if v.iter().all(|x| *x > 0.0) {
-        rows.push(("Geometric mean", fmt((v.iter().map(|x| x.ln()).sum::<f64>() / n).exp(), 6)));
-        rows.push(("Harmonic mean", fmt(n / v.iter().map(|x| 1.0 / x).sum::<f64>(), 6)));
+        rows.push((
+            "Geometric mean",
+            fmt((v.iter().map(|x| x.ln()).sum::<f64>() / n).exp(), 6),
+        ));
+        rows.push((
+            "Harmonic mean",
+            fmt(n / v.iter().map(|x| 1.0 / x).sum::<f64>(), 6),
+        ));
     }
     rows.push(("Count", fmt(n, 0)));
     rows.push(("Sum", fmt(v.iter().sum(), 6)));
     Ok(table(&rows))
 }
 
-const WEIGHT_UNITS: &[(&str, f64)] = &[("mg", 0.001), ("g", 1.0), ("kg", 1000.0), ("oz", 28.349523), ("lb", 453.59237), ("lbs", 453.59237)];
+const WEIGHT_UNITS: &[(&str, f64)] = &[
+    ("mg", 0.001),
+    ("g", 1.0),
+    ("kg", 1000.0),
+    ("oz", 28.349523),
+    ("lb", 453.59237),
+    ("lbs", 453.59237),
+];
 const VOLUME_UNITS: &[(&str, f64)] = &[
-    ("ml", 0.001), ("cl", 0.01), ("dl", 0.1), ("l", 1.0), ("floz", 0.0295735), ("fl oz", 0.0295735), ("pt", 0.473176), ("pint", 0.473176),
-    ("qt", 0.946353), ("gal", 3.78541), ("cup", 0.236588), ("tbsp", 0.0147868), ("tsp", 0.00492892), ("m3", 1000.0),
+    ("ml", 0.001),
+    ("cl", 0.01),
+    ("dl", 0.1),
+    ("l", 1.0),
+    ("floz", 0.0295735),
+    ("fl oz", 0.0295735),
+    ("pt", 0.473176),
+    ("pint", 0.473176),
+    ("qt", 0.946353),
+    ("gal", 3.78541),
+    ("cup", 0.236588),
+    ("tbsp", 0.0147868),
+    ("tsp", 0.00492892),
+    ("m3", 1000.0),
 ];
 
 /// A package size such as `500 g`, `1.5kg`, `12 oz`, `2 L` or `6`.
 fn package(s: &str, kind: &str) -> Result<f64, String> {
     let t = s.trim().to_lowercase().replace(',', ".");
     let split = t.find(|c: char| c.is_alphabetic()).unwrap_or(t.len());
-    let n: f64 = t[..split].trim().parse().map_err(|_| format!("“{s}” is not a size such as 500 g."))?;
+    let n: f64 = t[..split]
+        .trim()
+        .parse()
+        .map_err(|_| format!("“{s}” is not a size such as 500 g."))?;
     let unit = t[split..].trim();
     let table: &[(&str, f64)] = match kind {
         "volume" => VOLUME_UNITS,
@@ -670,7 +860,12 @@ fn package(s: &str, kind: &str) -> Result<f64, String> {
         .iter()
         .find(|u| u.0 == unit || (unit.len() > 2 && unit.trim_end_matches('s') == u.0))
         .map(|u| n * u.1)
-        .ok_or_else(|| format!("“{unit}” is not a unit of {kind}; use {}.", table.iter().map(|u| u.0).collect::<Vec<_>>().join(", ")))
+        .ok_or_else(|| {
+            format!(
+                "“{unit}” is not a unit of {kind}; use {}.",
+                table.iter().map(|u| u.0).collect::<Vec<_>>().join(", ")
+            )
+        })
 }
 
 fn unit_price(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -682,14 +877,24 @@ fn unit_price(text: &str, o: &mut Opts) -> Result<Output, String> {
         _ => (100.0, "per 100 g"),
     };
     let mut items = Vec::new();
-    for (n, l) in text.lines().map(str::trim).filter(|l| !l.is_empty()).enumerate() {
+    for (n, l) in text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .enumerate()
+    {
         let parts: Vec<&str> = l.split([',', ';', '\t', '|']).map(str::trim).collect();
         let (name, price, size) = match parts.as_slice() {
             [name, price, size, ..] => (name.to_string(), *price, *size),
             [price, size] => (format!("Item {}", n + 1), *price, *size),
-            _ => return Err(format!("“{l}” needs a name, a price and a size, separated by commas.")),
+            _ => {
+                return Err(format!(
+                    "“{l}” needs a name, a price and a size, separated by commas."
+                ));
+            }
         };
-        let price = super::parse_number(price).ok_or_else(|| format!("“{price}” is not a price."))?;
+        let price =
+            super::parse_number(price).ok_or_else(|| format!("“{price}” is not a price."))?;
         let amount = package(size, kind)?;
         if amount <= 0.0 {
             return Err(format!("“{size}” is not a size."));
@@ -710,7 +915,12 @@ fn unit_price(text: &str, o: &mut Opts) -> Result<Output, String> {
         } else {
             String::new()
         };
-        out.push(vec![name.clone(), format!("{sym}{} for {size}", fmt(*price, 2)), format!("{sym}{} {label}", fmt(*unit, 3)), tag]);
+        out.push(vec![
+            name.clone(),
+            format!("{sym}{} for {size}", fmt(*price, 2)),
+            format!("{sym}{} {label}", fmt(*unit, 3)),
+            tag,
+        ]);
     }
     let mut result = grid(&["", "Price", "Unit price", "Compared"], out);
     if items.len() > 1 {
@@ -730,7 +940,11 @@ fn poly_roots(coef: &[f64]) -> Vec<C> {
     // Durand–Kerner on the monic polynomial.
     let n = coef.len() - 1;
     let a: Vec<f64> = coef.iter().map(|c| c / coef[0]).collect();
-    let eval = |z: C| a.iter().fold(C(0.0, 0.0), |acc, c| C::bin('+', acc.mul(z), C(*c, 0.0)).unwrap());
+    let eval = |z: C| {
+        a.iter().fold(C(0.0, 0.0), |acc, c| {
+            C::bin('+', acc.mul(z), C(*c, 0.0)).unwrap()
+        })
+    };
     let mut roots: Vec<C> = (0..n).map(|k| C(0.4, 0.9).pow(C(k as f64, 0.0))).collect();
     for _ in 0..500 {
         let mut moved = 0.0f64;
@@ -758,7 +972,10 @@ fn equation(_: &str, o: &mut Opts) -> Result<Output, String> {
         coef.remove(0);
     }
     if coef.len() < 2 {
-        return Err("Write the coefficients from the highest power down, such as 1, -3, 2 for x² − 3x + 2.".into());
+        return Err(
+            "Write the coefficients from the highest power down, such as 1, -3, 2 for x² − 3x + 2."
+                .into(),
+        );
     }
     if coef.len() > 13 {
         return Err("At most degree 12.".into());
@@ -775,22 +992,52 @@ fn equation(_: &str, o: &mut Opts) -> Result<Output, String> {
             1 => "x".into(),
             p => format!("x^{p}"),
         };
-        let c_abs = if c.abs() == 1.0 && p > 0 { String::new() } else { fmt(c.abs(), 6) };
-        terms.push(format!("{}{c_abs}{x}", if *c < 0.0 { "− " } else if terms.is_empty() { "" } else { "+ " }));
+        let c_abs = if c.abs() == 1.0 && p > 0 {
+            String::new()
+        } else {
+            fmt(c.abs(), 6)
+        };
+        terms.push(format!(
+            "{}{c_abs}{x}",
+            if *c < 0.0 {
+                "− "
+            } else if terms.is_empty() {
+                ""
+            } else {
+                "+ "
+            }
+        ));
     }
     let mut out = vec![("Equation".to_owned(), format!("{} = 0", terms.join(" ")))];
     if n == 2 {
         let (a, b, c) = (coef[0], coef[1], coef[2]);
         out.push(("Discriminant".into(), fmt(b * b - 4.0 * a * c, 6)));
-        out.push(("Vertex".into(), format!("({}, {})", fmt(-b / (2.0 * a), 6), fmt(c - b * b / (4.0 * a), 6))));
+        out.push((
+            "Vertex".into(),
+            format!(
+                "({}, {})",
+                fmt(-b / (2.0 * a), 6),
+                fmt(c - b * b / (4.0 * a), 6)
+            ),
+        ));
     }
     let mut roots = poly_roots(&coef);
     roots.sort_by(|a, b| a.1.abs().total_cmp(&b.1.abs()).then(a.0.total_cmp(&b.0)));
     for (i, r) in roots.iter().enumerate() {
-        let r = C(if r.0.abs() < 1e-10 { 0.0 } else { r.0 }, if r.1.abs() < 1e-9 { 0.0 } else { r.1 });
-        out.push((format!("x{}", i + 1), show_complex(C((r.0 * 1e9).round() / 1e9, (r.1 * 1e9).round() / 1e9))));
+        let r = C(
+            if r.0.abs() < 1e-10 { 0.0 } else { r.0 },
+            if r.1.abs() < 1e-9 { 0.0 } else { r.1 },
+        );
+        out.push((
+            format!("x{}", i + 1),
+            show_complex(C((r.0 * 1e9).round() / 1e9, (r.1 * 1e9).round() / 1e9)),
+        ));
     }
-    Ok(table(&out.iter().map(|(l, v)| (l.as_str(), v.clone())).collect::<Vec<_>>()))
+    Ok(table(
+        &out.iter()
+            .map(|(l, v)| (l.as_str(), v.clone()))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 type Matrix = Vec<Vec<f64>>;
@@ -809,9 +1056,28 @@ fn parse_matrix(s: &str) -> Result<Matrix, String> {
 }
 
 fn show_matrix(m: &Matrix) -> String {
-    let cells: Vec<Vec<String>> = m.iter().map(|r| r.iter().map(|v| fmt(if v.abs() < 1e-12 { 0.0 } else { *v }, 6).replace(',', "")).collect()).collect();
+    let cells: Vec<Vec<String>> = m
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|v| fmt(if v.abs() < 1e-12 { 0.0 } else { *v }, 6).replace(',', ""))
+                .collect()
+        })
+        .collect();
     let w = cells.iter().flatten().map(|c| c.len()).max().unwrap_or(1);
-    cells.iter().map(|r| format!("[ {} ]", r.iter().map(|c| format!("{c:>w$}")).collect::<Vec<_>>().join("  "))).collect::<Vec<_>>().join("\n")
+    cells
+        .iter()
+        .map(|r| {
+            format!(
+                "[ {} ]",
+                r.iter()
+                    .map(|c| format!("{c:>w$}"))
+                    .collect::<Vec<_>>()
+                    .join("  ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Reduced row echelon form, and the determinant's factor and the rank.
@@ -823,7 +1089,10 @@ fn rref(mut m: Matrix) -> (Matrix, f64, usize) {
         if r == rows {
             break;
         }
-        let Some(p) = (r..rows).max_by(|&a, &b| m[a][c].abs().total_cmp(&m[b][c].abs())).filter(|&p| m[p][c].abs() > 1e-12) else {
+        let Some(p) = (r..rows)
+            .max_by(|&a, &b| m[a][c].abs().total_cmp(&m[b][c].abs()))
+            .filter(|&p| m[p][c].abs() > 1e-12)
+        else {
             det = 0.0;
             continue;
         };
@@ -856,45 +1125,89 @@ fn matrix(text: &str, o: &mut Opts) -> Result<Output, String> {
     };
     let a = parse_matrix(a_text)?;
     let b = b_text.map(parse_matrix).transpose()?;
-    let need_b = || b.clone().ok_or("Put the second matrix after a line of ===.");
-    let square = |m: &Matrix| if m.len() == m[0].len() { Ok(()) } else { Err("That needs a square matrix.".to_string()) };
+    let need_b = || {
+        b.clone()
+            .ok_or("Put the second matrix after a line of ===.")
+    };
+    let square = |m: &Matrix| {
+        if m.len() == m[0].len() {
+            Ok(())
+        } else {
+            Err("That needs a square matrix.".to_string())
+        }
+    };
     Ok(match o.mode {
         "det" => {
             square(&a)?;
             let (_, det, rank) = rref(a.clone());
-            table(&[("Determinant", fmt(if rank < a.len() { 0.0 } else { det }, 10))])
+            table(&[(
+                "Determinant",
+                fmt(if rank < a.len() { 0.0 } else { det }, 10),
+            )])
         }
         "inverse" => {
             square(&a)?;
             let n = a.len();
-            let aug: Matrix = a.iter().enumerate().map(|(i, r)| r.iter().copied().chain((0..n).map(|j| if i == j { 1.0 } else { 0.0 })).collect()).collect();
+            let aug: Matrix = a
+                .iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    r.iter()
+                        .copied()
+                        .chain((0..n).map(|j| if i == j { 1.0 } else { 0.0 }))
+                        .collect()
+                })
+                .collect();
             let (m, _, _) = rref(aug);
             if (0..n).any(|i| (m[i][i] - 1.0).abs() > 1e-9) {
                 return Err("The matrix is singular: it has no inverse.".into());
             }
             show_matrix(&m.iter().map(|r| r[n..].to_vec()).collect()).into()
         }
-        "transpose" => show_matrix(&(0..a[0].len()).map(|j| a.iter().map(|r| r[j]).collect()).collect()).into(),
+        "transpose" => show_matrix(
+            &(0..a[0].len())
+                .map(|j| a.iter().map(|r| r[j]).collect())
+                .collect(),
+        )
+        .into(),
         "rank" => table(&[("Rank", rref(a).2.to_string())]),
         "rref" => show_matrix(&rref(a).0).into(),
         "solve" => {
             let n = a.len();
             if a[0].len() != n + 1 {
-                return Err("Write the augmented matrix: each equation's coefficients, then its constant.".into());
+                return Err(
+                    "Write the augmented matrix: each equation's coefficients, then its constant."
+                        .into(),
+                );
             }
             let (m, _, rank) = rref(a);
             if rank < n {
                 return Err("The system has no single solution.".into());
             }
             let names: Vec<String> = (1..=n).map(|i| format!("x{i}")).collect();
-            table(&(0..n).map(|i| (names[i].as_str(), fmt(m[i][n], 10))).collect::<Vec<_>>())
+            table(
+                &(0..n)
+                    .map(|i| (names[i].as_str(), fmt(m[i][n], 10)))
+                    .collect::<Vec<_>>(),
+            )
         }
         "multiply" => {
             let b = need_b()?;
             if a[0].len() != b.len() {
-                return Err("The first matrix needs as many columns as the second has rows.".into());
+                return Err(
+                    "The first matrix needs as many columns as the second has rows.".into(),
+                );
             }
-            show_matrix(&a.iter().map(|r| (0..b[0].len()).map(|j| r.iter().zip(&b).map(|(x, br)| x * br[j]).sum()).collect()).collect()).into()
+            show_matrix(
+                &a.iter()
+                    .map(|r| {
+                        (0..b[0].len())
+                            .map(|j| r.iter().zip(&b).map(|(x, br)| x * br[j]).sum())
+                            .collect()
+                    })
+                    .collect(),
+            )
+            .into()
         }
         op => {
             let b = need_b()?;
@@ -902,7 +1215,13 @@ fn matrix(text: &str, o: &mut Opts) -> Result<Output, String> {
                 return Err("The matrices need the same size.".into());
             }
             let s = if op == "subtract" { -1.0 } else { 1.0 };
-            show_matrix(&a.iter().zip(&b).map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + s * q).collect()).collect()).into()
+            show_matrix(
+                &a.iter()
+                    .zip(&b)
+                    .map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + s * q).collect())
+                    .collect(),
+            )
+            .into()
         }
     })
 }
@@ -961,7 +1280,10 @@ fn factorial(_: &str, o: &mut Opts) -> Result<Output, String> {
     }
     let d = f.digits();
     let digits = d.len();
-    Ok(Output::default().code(d).note(format!("{n}! has {digits} digit{}.", if digits == 1 { "" } else { "s" })))
+    Ok(Output::default().code(d).note(format!(
+        "{n}! has {digits} digit{}.",
+        if digits == 1 { "" } else { "s" }
+    )))
 }
 
 fn fibonacci(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -981,20 +1303,42 @@ fn fibonacci(_: &str, o: &mut Opts) -> Result<Output, String> {
     }
     let d = a.digits();
     let digits = d.len();
-    let out = Output::default().code(d).note(format!("F({n}) has {digits} digit{}.", if digits == 1 { "" } else { "s" }));
-    Ok(if o.flag { out.text(list.join(", ")) } else { out })
+    let out = Output::default().code(d).note(format!(
+        "F({n}) has {digits} digit{}.",
+        if digits == 1 { "" } else { "s" }
+    ));
+    Ok(if o.flag {
+        out.text(list.join(", "))
+    } else {
+        out
+    })
 }
 
 fn gcd_lcm(_: &str, o: &mut Opts) -> Result<Output, String> {
     let v: Vec<u128> = numbers(&o.field(0).replace(',', " "))?
         .iter()
-        .map(|x| if x.fract() == 0.0 && *x >= 0.0 && *x < 1e18 { Ok(*x as u128) } else { Err(format!("“{x}” is not a whole number.")) })
+        .map(|x| {
+            if x.fract() == 0.0 && *x >= 0.0 && *x < 1e18 {
+                Ok(*x as u128)
+            } else {
+                Err(format!("“{x}” is not a whole number."))
+            }
+        })
         .collect::<Result<_, _>>()?;
     let g = v.iter().copied().fold(0, gcd);
-    let l = v.iter().try_fold(1u128, |l, x| if *x == 0 { Some(0) } else { (l / gcd(l, *x)).checked_mul(*x) });
+    let l = v.iter().try_fold(1u128, |l, x| {
+        if *x == 0 {
+            Some(0)
+        } else {
+            (l / gcd(l, *x)).checked_mul(*x)
+        }
+    });
     Ok(table(&[
         ("Greatest common divisor", g.to_string()),
-        ("Least common multiple", l.map_or("too large".into(), |l| l.to_string())),
+        (
+            "Least common multiple",
+            l.map_or("too large".into(), |l| l.to_string()),
+        ),
         ("Coprime", if g == 1 { "yes" } else { "no" }.into()),
     ]))
 }
@@ -1018,10 +1362,34 @@ fn exponent(_: &str, o: &mut Opts) -> Result<Output, String> {
     let b = o.num(0)?;
     let e = o.num(1)?;
     let v = b.powf(e);
-    let mut rows = vec![("Result", if v.is_finite() { fmt(v, 12) } else { "too large".into() })];
+    let mut rows = vec![(
+        "Result",
+        if v.is_finite() {
+            fmt(v, 12)
+        } else {
+            "too large".into()
+        },
+    )];
     if b > 0.0 {
         let l = e * b.log10();
-        rows.push(("Scientific", format!("{}e{}", fmt(10f64.powf(l.fract() + if l < 0.0 && l.fract() != 0.0 { 1.0 } else { 0.0 }), 10), (l.floor()) as i64)));
+        rows.push((
+            "Scientific",
+            format!(
+                "{}e{}",
+                fmt(
+                    10f64.powf(
+                        l.fract()
+                            + if l < 0.0 && l.fract() != 0.0 {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                    ),
+                    10
+                ),
+                (l.floor()) as i64
+            ),
+        ));
     }
     if e != 0.0 {
         rows.push(("Root (1/exponent)", fmt(b.powf(1.0 / e), 12)));
@@ -1077,7 +1445,11 @@ fn magic_square(_: &str, o: &mut Opts) -> Result<Output, String> {
         }
         let k = (n - 2) / 4;
         for i in 0..h {
-            let cols: Vec<usize> = if i == h / 2 { (1..=k).collect() } else { (0..k).collect() };
+            let cols: Vec<usize> = if i == h / 2 {
+                (1..=k).collect()
+            } else {
+                (0..k).collect()
+            };
             for &j in cols.iter().chain((n - k + 1..n).collect::<Vec<_>>().iter()) {
                 let t = m[i][j];
                 m[i][j] = m[i + h][j];
@@ -1086,8 +1458,19 @@ fn magic_square(_: &str, o: &mut Opts) -> Result<Output, String> {
         }
     }
     let w = (n * n).to_string().len();
-    let rows: Vec<String> = m.iter().map(|r| r.iter().map(|v| format!("{v:>w$}")).collect::<Vec<_>>().join(" ")).collect();
-    Ok(Output::default().code(rows.join("\n")).note(format!("Every row, column and diagonal adds up to {}.", n * (n * n + 1) / 2)))
+    let rows: Vec<String> = m
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|v| format!("{v:>w$}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    Ok(Output::default().code(rows.join("\n")).note(format!(
+        "Every row, column and diagonal adds up to {}.",
+        n * (n * n + 1) / 2
+    )))
 }
 
 fn pascal(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -1102,9 +1485,17 @@ fn pascal(_: &str, o: &mut Opts) -> Result<Output, String> {
         r.push(1);
         rows.push(r);
     }
-    let lines: Vec<String> = rows.iter().map(|r| r.iter().map(u128::to_string).collect::<Vec<_>>().join(" ")).collect();
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|r| r.iter().map(u128::to_string).collect::<Vec<_>>().join(" "))
+        .collect();
     let width = lines.last().map_or(0, |l| l.len());
-    Ok(lines.iter().map(|l| format!("{:^width$}", l).trim_end().to_owned()).collect::<Vec<_>>().join("\n").into())
+    Ok(lines
+        .iter()
+        .map(|l| format!("{:^width$}", l).trim_end().to_owned())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into())
 }
 
 fn mul_mod(a: u64, b: u64, m: u64) -> u64 {
@@ -1195,7 +1586,12 @@ pub fn factorize(n: u64, out: &mut Vec<u64>) {
 
 fn whole(o: &Opts, i: usize) -> Result<u64, String> {
     let s = o.field(i).replace([',', '_', ' '], "");
-    s.parse::<u64>().map_err(|_| format!("“{}” is not a whole number from 0 to 18,446,744,073,709,551,615.", o.field(i)))
+    s.parse::<u64>().map_err(|_| {
+        format!(
+            "“{}” is not a whole number from 0 to 18,446,744,073,709,551,615.",
+            o.field(i)
+        )
+    })
 }
 
 fn prime_check(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -1208,11 +1604,23 @@ fn prime_check(_: &str, o: &mut Opts) -> Result<Output, String> {
     f.sort();
     Ok(verdict(
         prime,
-        if prime { format!("{n} is prime.") } else if n < 2 { format!("{n} is not prime.") } else { format!("{n} is not prime: {n} = {}.", f.iter().map(u64::to_string).collect::<Vec<_>>().join(" × ")) },
+        if prime {
+            format!("{n} is prime.")
+        } else if n < 2 {
+            format!("{n} is not prime.")
+        } else {
+            format!(
+                "{n} is not prime: {n} = {}.",
+                f.iter().map(u64::to_string).collect::<Vec<_>>().join(" × ")
+            )
+        },
     )
     .facts(&[
         ("Next prime", next.to_string()),
-        ("Previous prime", prev.map_or("none".into(), |p| p.to_string())),
+        (
+            "Previous prime",
+            prev.map_or("none".into(), |p| p.to_string()),
+        ),
     ]))
 }
 
@@ -1231,10 +1639,28 @@ fn prime_factors(_: &str, o: &mut Opts) -> Result<Output, String> {
             _ => powers.push((p, 1)),
         }
     }
-    let sup = |e: u32| e.to_string().chars().map(|c| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(c as usize - '0' as usize).unwrap()).collect::<String>();
+    let sup = |e: u32| {
+        e.to_string()
+            .chars()
+            .map(|c| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(c as usize - '0' as usize).unwrap())
+            .collect::<String>()
+    };
     let count: u64 = powers.iter().map(|(_, e)| *e as u64 + 1).product();
     let mut rows = vec![
-        ("Factors", powers.iter().map(|(p, e)| if *e > 1 { format!("{p}{}", sup(*e)) } else { p.to_string() }).collect::<Vec<_>>().join(" × ")),
+        (
+            "Factors",
+            powers
+                .iter()
+                .map(|(p, e)| {
+                    if *e > 1 {
+                        format!("{p}{}", sup(*e))
+                    } else {
+                        p.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" × "),
+        ),
         ("Number of divisors", count.to_string()),
     ];
     if count <= 500 {
@@ -1251,7 +1677,13 @@ fn prime_factors(_: &str, o: &mut Opts) -> Result<Output, String> {
             divs.extend(more);
         }
         divs.sort();
-        rows.push(("Divisors", divs.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")));
+        rows.push((
+            "Divisors",
+            divs.iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
     }
     Ok(table(&rows))
 }
@@ -1264,15 +1696,22 @@ fn sci_notation(_: &str, o: &mut Opts) -> Result<Output, String> {
     let e = v.abs().log10().floor() as i32;
     let m = v / 10f64.powi(e);
     let eng = e.div_euclid(3) * 3;
-    let sup: String = e.to_string().chars().map(|c| match c {
-        '-' => '⁻',
-        c => "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(c as usize - '0' as usize).unwrap(),
-    }).collect();
+    let sup: String = e
+        .to_string()
+        .chars()
+        .map(|c| match c {
+            '-' => '⁻',
+            c => "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(c as usize - '0' as usize).unwrap(),
+        })
+        .collect();
     let digits = o.number.max(1);
     Ok(table(&[
         ("Scientific", format!("{} × 10{sup}", fmt(m, digits))),
         ("E notation", format!("{:.*}e{e}", digits, m)),
-        ("Engineering", format!("{} × 10^{eng}", fmt(v / 10f64.powi(eng), digits))),
+        (
+            "Engineering",
+            format!("{} × 10^{eng}", fmt(v / 10f64.powi(eng), digits)),
+        ),
         ("Decimal", fmt(v, 15)),
     ]))
 }
@@ -1324,7 +1763,14 @@ fn combinations(_: &str, o: &mut Opts) -> Result<Output, String> {
         ("Combinations C(n, k)", c.digits()),
         ("Permutations P(n, k)", p.digits()),
         ("With repetition", rep.digits()),
-        ("Arrangements n^k", if (n as f64).powi(k as i32) < 1e18 { (n as u128).pow(k as u32).to_string() } else { format!("{:.6e}", (n as f64).powi(k as i32)) }),
+        (
+            "Arrangements n^k",
+            if (n as f64).powi(k as i32) < 1e18 {
+                (n as u128).pow(k as u32).to_string()
+            } else {
+                format!("{:.6e}", (n as f64).powi(k as i32))
+            },
+        ),
     ]))
 }
 
@@ -1355,7 +1801,14 @@ fn truth_table(_: &str, o: &mut Opts) -> Result<Output, String> {
             _ => t.to_owned(),
         })
         .collect();
-    let mut vars: Vec<String> = tokens.iter().filter(|t| t.chars().all(|c| c.is_alphanumeric()) && !matches!(t.as_str(), "0" | "1" | "true" | "false")).cloned().collect();
+    let mut vars: Vec<String> = tokens
+        .iter()
+        .filter(|t| {
+            t.chars().all(|c| c.is_alphanumeric())
+                && !matches!(t.as_str(), "0" | "1" | "true" | "false")
+        })
+        .cloned()
+        .collect();
     vars.sort();
     vars.dedup();
     if vars.is_empty() || vars.len() > 8 {
@@ -1363,7 +1816,12 @@ fn truth_table(_: &str, o: &mut Opts) -> Result<Output, String> {
     }
     fn parse(t: &[String], i: &mut usize, vals: &[(String, bool)]) -> Result<bool, String> {
         // Precedence: ¬ > ∧ > ⊕ > ∨ > → > ≡.
-        fn level(t: &[String], i: &mut usize, vals: &[(String, bool)], lv: usize) -> Result<bool, String> {
+        fn level(
+            t: &[String],
+            i: &mut usize,
+            vals: &[(String, bool)],
+            lv: usize,
+        ) -> Result<bool, String> {
             const OPS: [&str; 5] = ["≡", "→", "∨", "⊕", "∧"];
             if lv == OPS.len() {
                 return unary(t, i, vals);
@@ -1409,7 +1867,11 @@ fn truth_table(_: &str, o: &mut Opts) -> Result<Output, String> {
                     Ok(false)
                 }
                 Some(v) => {
-                    let val = vals.iter().find(|(n, _)| n == v).map(|x| x.1).ok_or_else(|| format!("Unexpected “{v}”."))?;
+                    let val = vals
+                        .iter()
+                        .find(|(n, _)| n == v)
+                        .map(|x| x.1)
+                        .ok_or_else(|| format!("Unexpected “{v}”."))?;
                     *i += 1;
                     Ok(val)
                 }
@@ -1419,18 +1881,40 @@ fn truth_table(_: &str, o: &mut Opts) -> Result<Output, String> {
         level(t, i, vals, 0)
     }
     let mut out = vec![format!("{} │ {}", vars.join(" "), src)];
-    out.push(format!("{}─┼─{}", "─".repeat(vars.join(" ").chars().count()), "─".repeat(src.chars().count().max(3))));
+    out.push(format!(
+        "{}─┼─{}",
+        "─".repeat(vars.join(" ").chars().count()),
+        "─".repeat(src.chars().count().max(3))
+    ));
     let (mut trues, n) = (0, 1usize << vars.len());
     for row in 0..n {
-        let vals: Vec<(String, bool)> = vars.iter().enumerate().map(|(k, v)| (v.clone(), row >> (vars.len() - 1 - k) & 1 == 0)).collect();
+        let vals: Vec<(String, bool)> = vars
+            .iter()
+            .enumerate()
+            .map(|(k, v)| (v.clone(), row >> (vars.len() - 1 - k) & 1 == 0))
+            .collect();
         let mut i = 0;
         let r = parse(&tokens, &mut i, &vals)?;
         if i < tokens.len() {
             return Err(format!("Unexpected “{}”.", tokens[i]));
         }
         trues += r as usize;
-        let cells: Vec<String> = vars.iter().zip(&vals).map(|(name, (_, b))| format!("{:^w$}", if *b { "T" } else { "F" }, w = name.chars().count())).collect();
-        out.push(format!("{} │ {}", cells.join(" "), if r { "T" } else { "F" }));
+        let cells: Vec<String> = vars
+            .iter()
+            .zip(&vals)
+            .map(|(name, (_, b))| {
+                format!(
+                    "{:^w$}",
+                    if *b { "T" } else { "F" },
+                    w = name.chars().count()
+                )
+            })
+            .collect();
+        out.push(format!(
+            "{} │ {}",
+            cells.join(" "),
+            if r { "T" } else { "F" }
+        ));
     }
     Ok(Output::default().code(out.join("\n")).note(match trues {
         0 => "A contradiction: never true.".into(),
@@ -1462,7 +1946,11 @@ fn base_convert(_: &str, o: &mut Opts) -> Result<Output, String> {
         Some(r) => (true, r.to_owned()),
         None => (false, raw),
     };
-    let from: u32 = if o.mode == "custom" { o.num(1)? as u32 } else { o.mode.parse().unwrap_or(10) };
+    let from: u32 = if o.mode == "custom" {
+        o.num(1)? as u32
+    } else {
+        o.mode.parse().unwrap_or(10)
+    };
     if !(2..=36).contains(&from) {
         return Err("A base goes from 2 to 36.".into());
     }
@@ -1472,24 +1960,63 @@ fn base_convert(_: &str, o: &mut Opts) -> Result<Output, String> {
         8 => raw.trim_start_matches("0o"),
         _ => &raw,
     };
-    let n = u128::from_str_radix(&digits.to_lowercase(), from).map_err(|_| format!("“{digits}” is not a number in base {from}."))?;
+    let n = u128::from_str_radix(&digits.to_lowercase(), from)
+        .map_err(|_| format!("“{digits}” is not a number in base {from}."))?;
     let sign = if neg { "-" } else { "" };
     let mut rows = vec![
         ("Binary", format!("{sign}{}", to_base(n, 2))),
         ("Octal", format!("{sign}{}", to_base(n, 8))),
         ("Decimal", format!("{sign}{n}")),
-        ("Hexadecimal", format!("{sign}{}", to_base(n, 16).to_uppercase())),
+        (
+            "Hexadecimal",
+            format!("{sign}{}", to_base(n, 16).to_uppercase()),
+        ),
         ("Base 36", format!("{sign}{}", to_base(n, 36))),
     ];
-    if let Some(to) = o.opt_num(2)?.map(|v| v as u32).filter(|b| (2..=36).contains(b)) {
+    if let Some(to) = o
+        .opt_num(2)?
+        .map(|v| v as u32)
+        .filter(|b| (2..=36).contains(b))
+    {
         rows.insert(0, ("Your base", format!("{sign}{}", to_base(n, to))));
     }
     Ok(table(&rows))
 }
 
-const ONES: [&str; 20] = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
-const TENS: [&str; 10] = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
-const SCALES: [&str; 7] = ["", "thousand", "million", "billion", "trillion", "quadrillion", "quintillion"];
+const ONES: [&str; 20] = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+];
+const TENS: [&str; 10] = [
+    "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+];
+const SCALES: [&str; 7] = [
+    "",
+    "thousand",
+    "million",
+    "billion",
+    "trillion",
+    "quadrillion",
+    "quintillion",
+];
 
 fn below_thousand(n: u64) -> String {
     let (h, r) = (n / 100, n % 100);
@@ -1524,21 +2051,47 @@ pub fn words(n: u64) -> String {
         .enumerate()
         .rev()
         .filter(|(_, g)| **g > 0)
-        .map(|(i, g)| format!("{}{}", below_thousand(*g), if i > 0 { format!(" {}", SCALES[i]) } else { String::new() }))
+        .map(|(i, g)| {
+            format!(
+                "{}{}",
+                below_thousand(*g),
+                if i > 0 {
+                    format!(" {}", SCALES[i])
+                } else {
+                    String::new()
+                }
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ")
         .replace(", ", " ")
 }
 
 fn ordinal_words(w: &str) -> String {
-    let irregular = [("one", "first"), ("two", "second"), ("three", "third"), ("five", "fifth"), ("eight", "eighth"), ("nine", "ninth"), ("twelve", "twelfth")];
+    let irregular = [
+        ("one", "first"),
+        ("two", "second"),
+        ("three", "third"),
+        ("five", "fifth"),
+        ("eight", "eighth"),
+        ("nine", "ninth"),
+        ("twelve", "twelfth"),
+    ];
     let (head, last) = match w.rfind([' ', '-']) {
         Some(i) => (&w[..=i], &w[i + 1..]),
         None => ("", w),
     };
-    let last = irregular.iter().find(|(a, _)| *a == last).map(|(_, b)| b.to_string()).unwrap_or_else(|| {
-        if let Some(stem) = last.strip_suffix('y') { format!("{stem}ieth") } else { format!("{last}th") }
-    });
+    let last = irregular
+        .iter()
+        .find(|(a, _)| *a == last)
+        .map(|(_, b)| b.to_string())
+        .unwrap_or_else(|| {
+            if let Some(stem) = last.strip_suffix('y') {
+                format!("{stem}ieth")
+            } else {
+                format!("{last}th")
+            }
+        });
     format!("{head}{last}")
 }
 
@@ -1551,20 +2104,45 @@ fn number_words(_: &str, o: &mut Opts) -> Result<Output, String> {
     let cents = ((v.abs() - v.abs().trunc()) * 100.0).round() as u64;
     let sign = if v < 0.0 { "minus " } else { "" };
     let w = words(whole);
-    let decimal = format!("{}", v.abs()).split_once('.').map(|(_, f)| f.chars().map(|c| ONES[c as usize - '0' as usize]).collect::<Vec<_>>().join(" "));
-    let mut rows = vec![("Words", format!("{sign}{w}{}", decimal.map_or(String::new(), |d| format!(" point {d}"))))];
+    let decimal = format!("{}", v.abs()).split_once('.').map(|(_, f)| {
+        f.chars()
+            .map(|c| ONES[c as usize - '0' as usize])
+            .collect::<Vec<_>>()
+            .join(" ")
+    });
+    let mut rows = vec![(
+        "Words",
+        format!(
+            "{sign}{w}{}",
+            decimal.map_or(String::new(), |d| format!(" point {d}"))
+        ),
+    )];
     rows.push(("Ordinal", format!("{sign}{}", ordinal_words(&w))));
-    rows.push(("On a cheque", format!("{}{} and {cents:02}/100", sign, capitalize(&w))));
+    rows.push((
+        "On a cheque",
+        format!("{}{} and {cents:02}/100", sign, capitalize(&w)),
+    ));
     let unit = o.field(1);
     if !unit.is_empty() {
-        rows.push(("As money", format!("{sign}{w} {unit}{}", if cents > 0 { format!(" and {} cents", words(cents)) } else { String::new() })));
+        rows.push((
+            "As money",
+            format!(
+                "{sign}{w} {unit}{}",
+                if cents > 0 {
+                    format!(" and {} cents", words(cents))
+                } else {
+                    String::new()
+                }
+            ),
+        ));
     }
     Ok(table(&rows))
 }
 
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+    c.next()
+        .map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
 fn bitwise(_: &str, o: &mut Opts) -> Result<Output, String> {
@@ -1580,7 +2158,11 @@ fn bitwise(_: &str, o: &mut Opts) -> Result<Output, String> {
         r.map_err(|_| format!("“{s}” is not a whole number (decimal, 0x hex or 0b binary)."))
     };
     let a = parse(o.field(0))?;
-    let b = parse(if o.field(1).is_empty() { "0" } else { o.field(1) })?;
+    let b = parse(if o.field(1).is_empty() {
+        "0"
+    } else {
+        o.field(1)
+    })?;
     let r = match o.mode {
         "or" => a | b,
         "xor" => a ^ b,
@@ -1592,7 +2174,11 @@ fn bitwise(_: &str, o: &mut Opts) -> Result<Output, String> {
     };
     let bits = |v: i64| {
         let s = format!("{:b}", v as u64);
-        if v >= 0 { format!("{:0>8}", format!("{v:b}")) } else { s }
+        if v >= 0 {
+            format!("{:0>8}", format!("{v:b}"))
+        } else {
+            s
+        }
     };
     Ok(table(&[
         ("Decimal", r.to_string()),
@@ -1608,7 +2194,8 @@ fn twos_complement(_: &str, o: &mut Opts) -> Result<Output, String> {
     let s = o.field(0).replace([' ', '_'], "");
     let max = 1i128 << bits;
     let v: i128 = if o.choice(1) == "binary" {
-        let u = i128::from_str_radix(&s, 2).map_err(|_| "Write the bits as 0s and 1s.".to_string())?;
+        let u =
+            i128::from_str_radix(&s, 2).map_err(|_| "Write the bits as 0s and 1s.".to_string())?;
         if s.len() as u32 > bits {
             return Err(format!("That is more than {bits} bits."));
         }
@@ -1622,9 +2209,22 @@ fn twos_complement(_: &str, o: &mut Opts) -> Result<Output, String> {
     let u = if v < 0 { v + max } else { v } as u128;
     Ok(table(&[
         ("Decimal", v.to_string()),
-        ("Two's complement", format!("{:0>width$}", format!("{u:b}"), width = bits as usize)),
-        ("Hex", format!("0x{:0>width$X}", u, width = bits as usize / 4)),
-        ("One's complement", format!("{:0>width$}", format!("{:b}", (!u) & (max as u128 - 1)), width = bits as usize)),
+        (
+            "Two's complement",
+            format!("{:0>width$}", format!("{u:b}"), width = bits as usize),
+        ),
+        (
+            "Hex",
+            format!("0x{:0>width$X}", u, width = bits as usize / 4),
+        ),
+        (
+            "One's complement",
+            format!(
+                "{:0>width$}",
+                format!("{:b}", (!u) & (max as u128 - 1)),
+                width = bits as usize
+            ),
+        ),
     ]))
 }
 
@@ -1638,22 +2238,55 @@ fn ieee754(_: &str, o: &mut Opts) -> Result<Output, String> {
             f32::from_bits(u32::from_str_radix(h, 16).map_err(|_| "That is not hex.")?) as f64
         }
     } else {
-        super::parse_number(s).or_else(|| s.parse().ok()).ok_or("Write a number, or 0x and its bits in hex.")?
+        super::parse_number(s)
+            .or_else(|| s.parse().ok())
+            .ok_or("Write a number, or 0x and its bits in hex.")?
     };
     let (bits, sign, exp, man, ebits, hex, exact) = if double {
         let b = v.to_bits();
-        (format!("{b:064b}"), b >> 63, (b >> 52) & 0x7ff, b & ((1 << 52) - 1), 11, format!("0x{b:016X}"), format!("{v:e}"))
+        (
+            format!("{b:064b}"),
+            b >> 63,
+            (b >> 52) & 0x7ff,
+            b & ((1 << 52) - 1),
+            11,
+            format!("0x{b:016X}"),
+            format!("{v:e}"),
+        )
     } else {
         let f = v as f32;
         let b = f.to_bits() as u64;
-        (format!("{b:032b}"), b >> 31, (b >> 23) & 0xff, b & ((1 << 23) - 1), 8, format!("0x{b:08X}"), format!("{} (stored as {:e})", v, f))
+        (
+            format!("{b:032b}"),
+            b >> 31,
+            (b >> 23) & 0xff,
+            b & ((1 << 23) - 1),
+            8,
+            format!("0x{b:08X}"),
+            format!("{} (stored as {:e})", v, f),
+        )
     };
     let bias = if double { 1023 } else { 127 };
     Ok(table(&[
         ("Value", exact),
         ("Hex", hex),
-        ("Bits", format!("{} {} {}", &bits[..1], &bits[1..1 + ebits], &bits[1 + ebits..])),
-        ("Sign", if sign == 1 { "negative".into() } else { "positive".into() }),
+        (
+            "Bits",
+            format!(
+                "{} {} {}",
+                &bits[..1],
+                &bits[1..1 + ebits],
+                &bits[1 + ebits..]
+            ),
+        ),
+        (
+            "Sign",
+            if sign == 1 {
+                "negative".into()
+            } else {
+                "positive".into()
+            },
+        ),
         ("Exponent", format!("{exp} (2^{})", exp as i64 - bias)),
         ("Mantissa", format!("0x{man:X}")),
     ]))
@@ -1689,7 +2322,13 @@ fn mode(v: &[f64]) -> String {
     if top <= 1 {
         return "none".into();
     }
-    counts.iter().filter(|c| c.1 == top).map(|c| fmt(c.0, 6)).collect::<Vec<_>>().join(", ") + &format!(" ({top}×)")
+    counts
+        .iter()
+        .filter(|c| c.1 == top)
+        .map(|c| fmt(c.0, 6))
+        .collect::<Vec<_>>()
+        .join(", ")
+        + &format!(" ({top}×)")
 }
 
 fn stats(text: &str, _: &mut Opts) -> Result<Output, String> {
@@ -1720,9 +2359,30 @@ fn stats(text: &str, _: &mut Opts) -> Result<Output, String> {
         ("Sample std. deviation", fmt(sd, 6)),
         ("Population std. deviation", fmt(var_p.sqrt(), 6)),
         ("Standard error", fmt(sd / n.sqrt(), 6)),
-        ("Coefficient of variation", if mean != 0.0 { format!("{}%", fmt(sd / mean.abs() * 100.0, 3)) } else { "—".into() }),
-        ("Skewness", if var_p > 0.0 { fmt(m3 / var_p.powf(1.5), 4) } else { "—".into() }),
-        ("Excess kurtosis", if var_p > 0.0 { fmt(m4 / var_p.powi(2) - 3.0, 4) } else { "—".into() }),
+        (
+            "Coefficient of variation",
+            if mean != 0.0 {
+                format!("{}%", fmt(sd / mean.abs() * 100.0, 3))
+            } else {
+                "—".into()
+            },
+        ),
+        (
+            "Skewness",
+            if var_p > 0.0 {
+                fmt(m3 / var_p.powf(1.5), 4)
+            } else {
+                "—".into()
+            },
+        ),
+        (
+            "Excess kurtosis",
+            if var_p > 0.0 {
+                fmt(m4 / var_p.powi(2) - 3.0, 4)
+            } else {
+                "—".into()
+            },
+        ),
     ]))
 }
 
@@ -1812,16 +2472,34 @@ fn normal(_: &str, o: &mut Opts) -> Result<Output, String> {
     match (a, b) {
         (Some(a), Some(b)) => rows.push(("P(a < X < b)", fmt((cdf(b) - cdf(a)).abs(), 8))),
         (Some(a), None) => {
-            let pdf = (-((a - mean) / sd).powi(2) / 2.0).exp() / (sd * (2.0 * std::f64::consts::PI).sqrt());
+            let pdf = (-((a - mean) / sd).powi(2) / 2.0).exp()
+                / (sd * (2.0 * std::f64::consts::PI).sqrt());
             rows.push(("P(X < a)", fmt(cdf(a), 8)));
             rows.push(("P(X > a)", fmt(1.0 - cdf(a), 8)));
             rows.push(("Density at a", fmt(pdf, 8)));
         }
         _ => {}
     }
-    rows.push(("68% interval", format!("{} – {}", fmt(mean - sd, 4), fmt(mean + sd, 4))));
-    rows.push(("95% interval", format!("{} – {}", fmt(mean + normal_quantile(0.025) * sd, 4), fmt(mean + normal_quantile(0.975) * sd, 4))));
-    rows.push(("99% interval", format!("{} – {}", fmt(mean + normal_quantile(0.005) * sd, 4), fmt(mean + normal_quantile(0.995) * sd, 4))));
+    rows.push((
+        "68% interval",
+        format!("{} – {}", fmt(mean - sd, 4), fmt(mean + sd, 4)),
+    ));
+    rows.push((
+        "95% interval",
+        format!(
+            "{} – {}",
+            fmt(mean + normal_quantile(0.025) * sd, 4),
+            fmt(mean + normal_quantile(0.975) * sd, 4)
+        ),
+    ));
+    rows.push((
+        "99% interval",
+        format!(
+            "{} – {}",
+            fmt(mean + normal_quantile(0.005) * sd, 4),
+            fmt(mean + normal_quantile(0.995) * sd, 4)
+        ),
+    ));
     Ok(table(&rows))
 }
 
@@ -1847,7 +2525,10 @@ fn pearson(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len() as f64;
     let (mx, my) = (x.iter().sum::<f64>() / n, y.iter().sum::<f64>() / n);
     let cov: f64 = x.iter().zip(y).map(|(a, b)| (a - mx) * (b - my)).sum();
-    let (sx, sy) = (x.iter().map(|a| (a - mx).powi(2)).sum::<f64>().sqrt(), y.iter().map(|b| (b - my).powi(2)).sum::<f64>().sqrt());
+    let (sx, sy) = (
+        x.iter().map(|a| (a - mx).powi(2)).sum::<f64>().sqrt(),
+        y.iter().map(|b| (b - my).powi(2)).sum::<f64>().sqrt(),
+    );
     cov / (sx * sy)
 }
 
@@ -1868,7 +2549,12 @@ fn correlation(text: &str, _: &mut Opts) -> Result<Output, String> {
     let r = pearson(&x, &y);
     let n = x.len() as f64;
     let (mx, my) = (x.iter().sum::<f64>() / n, y.iter().sum::<f64>() / n);
-    let slope = x.iter().zip(&y).map(|(a, b)| (a - mx) * (b - my)).sum::<f64>() / x.iter().map(|a| (a - mx).powi(2)).sum::<f64>();
+    let slope = x
+        .iter()
+        .zip(&y)
+        .map(|(a, b)| (a - mx) * (b - my))
+        .sum::<f64>()
+        / x.iter().map(|a| (a - mx).powi(2)).sum::<f64>();
     let strength = match r.abs() {
         a if a >= 0.8 => "very strong",
         a if a >= 0.6 => "strong",
@@ -1877,34 +2563,62 @@ fn correlation(text: &str, _: &mut Opts) -> Result<Output, String> {
         _ => "very weak or none",
     };
     Ok(table(&[
-        ("Pearson r", format!("{} ({strength}, {})", fmt(r, 4), if r >= 0.0 { "positive" } else { "negative" })),
+        (
+            "Pearson r",
+            format!(
+                "{} ({strength}, {})",
+                fmt(r, 4),
+                if r >= 0.0 { "positive" } else { "negative" }
+            ),
+        ),
         ("r²", fmt(r * r, 4)),
         ("Spearman ρ", fmt(pearson(&ranks(&x), &ranks(&y)), 4)),
-        ("Regression line", format!("y = {} x {} {}", fmt(slope, 6), if my - slope * mx < 0.0 { "−" } else { "+" }, fmt((my - slope * mx).abs(), 6))),
+        (
+            "Regression line",
+            format!(
+                "y = {} x {} {}",
+                fmt(slope, 6),
+                if my - slope * mx < 0.0 { "−" } else { "+" },
+                fmt((my - slope * mx).abs(), 6)
+            ),
+        ),
         ("Pairs", fmt(n, 0)),
     ]))
 }
 
 fn chi_square(text: &str, o: &mut Opts) -> Result<Output, String> {
-    let rows: Vec<Vec<f64>> = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(|l| numbers(&l.replace(',', " "))).collect::<Result<_, _>>()?;
+    let rows: Vec<Vec<f64>> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| numbers(&l.replace(',', " ")))
+        .collect::<Result<_, _>>()?;
     if rows.is_empty() || rows.iter().any(|r| r.len() != rows[0].len()) {
         return Err("Write rows of the same length.".into());
     }
     let (chi, df) = if o.mode == "fit" {
         if rows.len() != 2 {
-            return Err("Write the observed counts on one line and the expected on the next.".into());
+            return Err(
+                "Write the observed counts on one line and the expected on the next.".into(),
+            );
         }
         let total_o: f64 = rows[0].iter().sum();
         let total_e: f64 = rows[1].iter().sum();
-        let chi: f64 = rows[0].iter().zip(&rows[1]).map(|(ob, ex)| {
-            let e = ex * total_o / total_e;
-            (ob - e).powi(2) / e
-        }).sum();
+        let chi: f64 = rows[0]
+            .iter()
+            .zip(&rows[1])
+            .map(|(ob, ex)| {
+                let e = ex * total_o / total_e;
+                (ob - e).powi(2) / e
+            })
+            .sum();
         (chi, rows[0].len() as f64 - 1.0)
     } else {
         let total: f64 = rows.iter().flatten().sum();
         let rs: Vec<f64> = rows.iter().map(|r| r.iter().sum()).collect();
-        let cs: Vec<f64> = (0..rows[0].len()).map(|j| rows.iter().map(|r| r[j]).sum()).collect();
+        let cs: Vec<f64> = (0..rows[0].len())
+            .map(|j| rows.iter().map(|r| r[j]).sum())
+            .collect();
         let mut chi = 0.0;
         for (i, r) in rows.iter().enumerate() {
             for (j, ob) in r.iter().enumerate() {
@@ -1922,7 +2636,15 @@ fn chi_square(text: &str, o: &mut Opts) -> Result<Output, String> {
         ("χ²", fmt(chi, 4)),
         ("Degrees of freedom", fmt(df, 0)),
         ("p-value", fmt(p, 6)),
-        ("At 5%", if p < 0.05 { "significant: reject the null hypothesis" } else { "not significant" }.into()),
+        (
+            "At 5%",
+            if p < 0.05 {
+                "significant: reject the null hypothesis"
+            } else {
+                "not significant"
+            }
+            .into(),
+        ),
     ]))
 }
 
@@ -1931,7 +2653,11 @@ fn frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     let s = sorted(&v);
     let (lo, hi) = (s[0], s[s.len() - 1]);
     let bins = o.number.max(1);
-    let width = if hi > lo { (hi - lo) / bins as f64 } else { 1.0 };
+    let width = if hi > lo {
+        (hi - lo) / bins as f64
+    } else {
+        1.0
+    };
     let mut counts = vec![0usize; bins];
     for x in &v {
         let i = (((x - lo) / width) as usize).min(bins - 1);
@@ -1943,7 +2669,11 @@ fn frequency(text: &str, o: &mut Opts) -> Result<Output, String> {
     for (i, c) in counts.iter().enumerate() {
         cum += c;
         out.push(vec![
-            format!("{} – {}", fmt(lo + width * i as f64, 3), fmt(lo + width * (i + 1) as f64, 3)),
+            format!(
+                "{} – {}",
+                fmt(lo + width * i as f64, 3),
+                fmt(lo + width * (i + 1) as f64, 3)
+            ),
             c.to_string(),
             format!("{:.1}%", *c as f64 * 100.0 / v.len() as f64),
             format!("{:.1}%", cum as f64 * 100.0 / v.len() as f64),
@@ -1957,8 +2687,16 @@ fn probability(_: &str, o: &mut Opts) -> Result<Output, String> {
     let read = |i: usize| -> Result<f64, String> {
         let raw = o.field(i);
         let v = super::parse_number(raw).ok_or_else(|| format!("“{raw}” is not a probability."))?;
-        let v = if raw.ends_with('%') || v > 1.0 { v / 100.0 } else { v };
-        if (0.0..=1.0).contains(&v) { Ok(v) } else { Err("A probability goes from 0 to 1 (or 0% to 100%).".into()) }
+        let v = if raw.ends_with('%') || v > 1.0 {
+            v / 100.0
+        } else {
+            v
+        };
+        if (0.0..=1.0).contains(&v) {
+            Ok(v)
+        } else {
+            Err("A probability goes from 0 to 1 (or 0% to 100%).".into())
+        }
     };
     let (a, b) = (read(0)?, read(1)?);
     let p = |v: f64| format!("{} ({}%)", fmt(v, 6), fmt(v * 100.0, 4));
@@ -2034,41 +2772,172 @@ pub const MATH: &[Tool] = &[
 ];
 
 pub const NUMBERS: &[Tool] = &[
-    tool("base", "Number base converter", "Binary, octal, decimal, hex and any base from 2 to 36.", base_convert)
-        .form()
-        .fields(&[("Number", "255"), ("From base (custom)", "7"), ("Also to base", "")])
-        .selects(&[("From", &[("10", "Decimal"), ("2", "Binary"), ("8", "Octal"), ("16", "Hexadecimal"), ("custom", "Custom base")])]),
-    tool("number-words", "Number to words", "A number in English words, as an ordinal, and as on a cheque.", number_words)
-        .form()
-        .fields(&[("Number", "1234.56"), ("Currency (optional)", "dollars")]),
-    tool("roman", "Decimal to Roman numerals", "Each number (1–3999) as Roman numerals.", super::encode::decimal_to_roman).text("Numbers, one per line"),
-    tool("roman-decimal", "Roman numerals to decimal", "Each Roman numeral as a number.", super::encode::roman_to_decimal).text("Roman numerals, one per line"),
-    tool("bitwise", "Bitwise calculator", "AND, OR, XOR, NOT and shifts, in decimal, hex and binary.", bitwise)
-        .form()
-        .fields(&[("A", "0b1100"), ("B", "0b1010")])
-        .selects(&[("Operation", &[("and", "A AND B"), ("or", "A OR B"), ("xor", "A XOR B"), ("nand", "A NAND B"), ("not", "NOT A"), ("shl", "A << B"), ("shr", "A >> B")])]),
-    tool("twos-complement", "Two's complement", "Signed numbers as two's complement bits, and back.", twos_complement)
-        .form()
-        .fields(&[("Value", "-42")])
-        .selects(&[("Bits", &[("8", "8"), ("16", "16"), ("32", "32"), ("64", "64")]), ("The value is", &[("decimal", "Decimal"), ("binary", "Binary")])]),
-    tool("ieee754", "IEEE 754 floating point", "How a number is stored as a float or double.", ieee754)
-        .form()
-        .fields(&[("Number, or 0x bits", "0.1")])
-        .selects(&[("Precision", &[("64", "Double (64 bits)"), ("32", "Single (32 bits)")])]),
+    tool(
+        "base",
+        "Number base converter",
+        "Binary, octal, decimal, hex and any base from 2 to 36.",
+        base_convert,
+    )
+    .form()
+    .fields(&[
+        ("Number", "255"),
+        ("From base (custom)", "7"),
+        ("Also to base", ""),
+    ])
+    .selects(&[(
+        "From",
+        &[
+            ("10", "Decimal"),
+            ("2", "Binary"),
+            ("8", "Octal"),
+            ("16", "Hexadecimal"),
+            ("custom", "Custom base"),
+        ],
+    )]),
+    tool(
+        "number-words",
+        "Number to words",
+        "A number in English words, as an ordinal, and as on a cheque.",
+        number_words,
+    )
+    .form()
+    .fields(&[("Number", "1234.56"), ("Currency (optional)", "dollars")]),
+    tool(
+        "roman",
+        "Decimal to Roman numerals",
+        "Each number (1–3999) as Roman numerals.",
+        super::encode::decimal_to_roman,
+    )
+    .text("Numbers, one per line"),
+    tool(
+        "roman-decimal",
+        "Roman numerals to decimal",
+        "Each Roman numeral as a number.",
+        super::encode::roman_to_decimal,
+    )
+    .text("Roman numerals, one per line"),
+    tool(
+        "bitwise",
+        "Bitwise calculator",
+        "AND, OR, XOR, NOT and shifts, in decimal, hex and binary.",
+        bitwise,
+    )
+    .form()
+    .fields(&[("A", "0b1100"), ("B", "0b1010")])
+    .selects(&[(
+        "Operation",
+        &[
+            ("and", "A AND B"),
+            ("or", "A OR B"),
+            ("xor", "A XOR B"),
+            ("nand", "A NAND B"),
+            ("not", "NOT A"),
+            ("shl", "A << B"),
+            ("shr", "A >> B"),
+        ],
+    )]),
+    tool(
+        "twos-complement",
+        "Two's complement",
+        "Signed numbers as two's complement bits, and back.",
+        twos_complement,
+    )
+    .form()
+    .fields(&[("Value", "-42")])
+    .selects(&[
+        (
+            "Bits",
+            &[("8", "8"), ("16", "16"), ("32", "32"), ("64", "64")],
+        ),
+        (
+            "The value is",
+            &[("decimal", "Decimal"), ("binary", "Binary")],
+        ),
+    ]),
+    tool(
+        "ieee754",
+        "IEEE 754 floating point",
+        "How a number is stored as a float or double.",
+        ieee754,
+    )
+    .form()
+    .fields(&[("Number, or 0x bits", "0.1")])
+    .selects(&[(
+        "Precision",
+        &[("64", "Double (64 bits)"), ("32", "Single (32 bits)")],
+    )]),
 ];
 
 pub const STATS: &[Tool] = &[
-    tool("stats", "Descriptive statistics", "Mean, median, mode, quartiles, variance, standard deviation, skewness and more.", stats).text("Numbers"),
-    tool("z-score", "Z-score", "A value's z-score and percentile.", z_score).form().fields(&[("Value", "130"), ("Mean", "100"), ("Standard deviation", "15")]),
-    tool("normal", "Normal distribution", "Probabilities and intervals of a normal distribution.", normal)
-        .form()
-        .fields(&[("Mean", "100"), ("Standard deviation", "15"), ("a", "115"), ("b (optional)", "")]),
-    tool("correlation", "Correlation and regression", "Pearson and Spearman correlation and the regression line.", correlation).text("x, y on each line"),
-    tool("chi-square", "Chi-square test", "Goodness of fit or independence, with the p-value.", chi_square)
-        .text("Counts: a row per line")
-        .selects(&[("Test", &[("independence", "Independence (a contingency table)"), ("fit", "Goodness of fit (observed, then expected)")])]),
-    tool("frequency-distribution", "Frequency distribution", "Counts and shares of numbers in equal bins, with a histogram.", frequency).text("Numbers").slider("Bins", 2.0, 30.0, 8.0),
-    tool("probability", "Probability calculator", "And, or, neither and more for two independent events.", probability).form().fields(&[("P(A)", "0.5"), ("P(B)", "30%")]),
+    tool(
+        "stats",
+        "Descriptive statistics",
+        "Mean, median, mode, quartiles, variance, standard deviation, skewness and more.",
+        stats,
+    )
+    .text("Numbers"),
+    tool(
+        "z-score",
+        "Z-score",
+        "A value's z-score and percentile.",
+        z_score,
+    )
+    .form()
+    .fields(&[
+        ("Value", "130"),
+        ("Mean", "100"),
+        ("Standard deviation", "15"),
+    ]),
+    tool(
+        "normal",
+        "Normal distribution",
+        "Probabilities and intervals of a normal distribution.",
+        normal,
+    )
+    .form()
+    .fields(&[
+        ("Mean", "100"),
+        ("Standard deviation", "15"),
+        ("a", "115"),
+        ("b (optional)", ""),
+    ]),
+    tool(
+        "correlation",
+        "Correlation and regression",
+        "Pearson and Spearman correlation and the regression line.",
+        correlation,
+    )
+    .text("x, y on each line"),
+    tool(
+        "chi-square",
+        "Chi-square test",
+        "Goodness of fit or independence, with the p-value.",
+        chi_square,
+    )
+    .text("Counts: a row per line")
+    .selects(&[(
+        "Test",
+        &[
+            ("independence", "Independence (a contingency table)"),
+            ("fit", "Goodness of fit (observed, then expected)"),
+        ],
+    )]),
+    tool(
+        "frequency-distribution",
+        "Frequency distribution",
+        "Counts and shares of numbers in equal bins, with a histogram.",
+        frequency,
+    )
+    .text("Numbers")
+    .slider("Bins", 2.0, 30.0, 8.0),
+    tool(
+        "probability",
+        "Probability calculator",
+        "And, or, neither and more for two independent events.",
+        probability,
+    )
+    .form()
+    .fields(&[("P(A)", "0.5"), ("P(B)", "30%")]),
 ];
 
 #[cfg(test)]
@@ -2105,7 +2974,10 @@ mod tests {
         factorize(600851475143, &mut f);
         f.sort();
         assert_eq!(f, vec![71, 839, 1471, 6857]);
-        assert_eq!(words(1234567), "one million two hundred and thirty-four thousand five hundred and sixty-seven");
+        assert_eq!(
+            words(1234567),
+            "one million two hundred and thirty-four thousand five hundred and sixty-seven"
+        );
         assert_eq!(ordinal_words("twenty-one"), "twenty-first");
         assert_eq!(to_fraction(0.75, 1e-9), (3, 4));
     }
@@ -2114,9 +2986,14 @@ mod tests {
     fn unit_prices() {
         let mut rng = Rng(1);
         let mut o = Opts::new("weight", &mut rng).with(&["$"], &["weight"], &[]);
-        let out = unit_price("Small, 2.00, 250 g\nBig, 5.00, 1 kg\nMid, 3, 500g", &mut o).unwrap().plain();
+        let out = unit_price("Small, 2.00, 250 g\nBig, 5.00, 1 kg\nMid, 3, 500g", &mut o)
+            .unwrap()
+            .plain();
         let first = out.lines().nth(1).unwrap();
-        assert!(first.starts_with("Big") && first.contains("Best value"), "{out}");
+        assert!(
+            first.starts_with("Big") && first.contains("Best value"),
+            "{out}"
+        );
         assert!(out.contains("+60%"), "{out}");
     }
 

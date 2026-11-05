@@ -12,7 +12,10 @@ pub enum Block {
     /// Labelled values: the answer of most calculators.
     Facts(Vec<(String, String)>),
     /// Rows under a header, such as a schedule.
-    Table { head: Vec<String>, rows: Vec<Vec<String>> },
+    Table {
+        head: Vec<String>,
+        rows: Vec<Vec<String>>,
+    },
     /// Text to copy or to work on again, monospaced.
     Code(String),
     /// Prose.
@@ -20,8 +23,14 @@ pub enum Block {
     /// Items, one per line, such as matches or generated names.
     List(Vec<String>),
     /// Whether the input passed a check, and why.
-    Verdict { ok: bool, text: String },
-    Image { png: Vec<u8>, alt: String },
+    Verdict {
+        ok: bool,
+        text: String,
+    },
+    Image {
+        png: Vec<u8>,
+        alt: String,
+    },
     /// A secondary remark.
     Note(String),
 }
@@ -33,14 +42,25 @@ pub struct Output {
 
 impl Output {
     pub fn facts(mut self, rows: &[(&str, String)]) -> Self {
-        self.blocks.push(Block::Facts(rows.iter().map(|(l, v)| ((*l).to_owned(), v.clone())).collect()));
+        self.blocks.push(Block::Facts(
+            rows.iter()
+                .map(|(l, v)| ((*l).to_owned(), v.clone()))
+                .collect(),
+        ));
         self
     }
 
-    pub fn table<S: Into<String>>(mut self, head: &[&str], rows: impl IntoIterator<Item = Vec<S>>) -> Self {
+    pub fn table<S: Into<String>>(
+        mut self,
+        head: &[&str],
+        rows: impl IntoIterator<Item = Vec<S>>,
+    ) -> Self {
         self.blocks.push(Block::Table {
             head: head.iter().map(|h| (*h).to_owned()).collect(),
-            rows: rows.into_iter().map(|r| r.into_iter().map(Into::into).collect()).collect(),
+            rows: rows
+                .into_iter()
+                .map(|r| r.into_iter().map(Into::into).collect())
+                .collect(),
         });
         self
     }
@@ -56,17 +76,24 @@ impl Output {
     }
 
     pub fn list(mut self, items: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.blocks.push(Block::List(items.into_iter().map(Into::into).collect()));
+        self.blocks
+            .push(Block::List(items.into_iter().map(Into::into).collect()));
         self
     }
 
     pub fn verdict(mut self, ok: bool, text: impl Into<String>) -> Self {
-        self.blocks.push(Block::Verdict { ok, text: text.into() });
+        self.blocks.push(Block::Verdict {
+            ok,
+            text: text.into(),
+        });
         self
     }
 
     pub fn image(mut self, png: Vec<u8>, alt: impl Into<String>) -> Self {
-        self.blocks.push(Block::Image { png, alt: alt.into() });
+        self.blocks.push(Block::Image {
+            png,
+            alt: alt.into(),
+        });
         self
     }
 
@@ -109,7 +136,9 @@ impl Output {
                 }
                 Block::Code(t) | Block::Text(t) | Block::Note(t) => Some(t.clone()),
                 Block::List(items) => Some(items.join("\n")),
-                Block::Verdict { ok, text } => Some(format!("{} {text}", if *ok { "✓" } else { "✗" })),
+                Block::Verdict { ok, text } => {
+                    Some(format!("{} {text}", if *ok { "✓" } else { "✗" }))
+                }
                 Block::Image { .. } => None,
             })
             .collect::<Vec<_>>()
@@ -126,24 +155,37 @@ impl Output {
                 Block::Facts(rows) if rows.len() == 1 => {
                     let (label, value) = &rows[0];
                     let id = ids.take(&format!("{prefix}-{}", slug(label)));
-                    nodes.push(vtree::column(id.as_str()).gap("none").children([
-                        vtree::text(format!("{id}-label")).variant("caption").text(label.as_str()),
-                        vtree::text(format!("{id}-value")).variant("h2").text(value.as_str()),
-                    ]));
+                    nodes.push(
+                        vtree::column(id.as_str()).gap("none").children([
+                            vtree::text(format!("{id}-label"))
+                                .variant("caption")
+                                .text(label.as_str()),
+                            vtree::text(format!("{id}-value"))
+                                .variant("h2")
+                                .text(value.as_str()),
+                        ]),
+                    );
                 }
                 Block::Facts(rows) => {
                     let list = ids.take(&format!("{prefix}-facts"));
-                    nodes.push(vtree::list(list.as_str()).children(rows.iter().map(|(label, value)| {
-                        if label.is_empty() {
-                            let id = ids.take(&format!("{list}-{}", slug(value)));
-                            return vtree::text(id).variant("caption").text(value.as_str());
-                        }
-                        let id = ids.take(&format!("{list}-{}", slug(label)));
-                        vtree::row(id.as_str()).justify("between").wrap(true).children([
-                            vtree::text(format!("{id}-label")).text(label.as_str()),
-                            vtree::text(format!("{id}-value")).variant("h3").text(value.as_str()),
-                        ])
-                    })));
+                    nodes.push(vtree::list(list.as_str()).children(rows.iter().map(
+                        |(label, value)| {
+                            if label.is_empty() {
+                                let id = ids.take(&format!("{list}-{}", slug(value)));
+                                return vtree::text(id).variant("caption").text(value.as_str());
+                            }
+                            let id = ids.take(&format!("{list}-{}", slug(label)));
+                            vtree::row(id.as_str())
+                                .justify("between")
+                                .wrap(true)
+                                .children([
+                                    vtree::text(format!("{id}-label")).text(label.as_str()),
+                                    vtree::text(format!("{id}-value"))
+                                        .variant("h3")
+                                        .text(value.as_str()),
+                                ])
+                        },
+                    )));
                 }
                 Block::Table { head, rows } => {
                     let list = ids.take(&format!("{prefix}-table"));
@@ -155,15 +197,27 @@ impl Output {
                             .zip(head.iter())
                             .skip(1)
                             .filter(|(v, _)| !v.is_empty())
-                            .map(|(v, h)| if h.is_empty() { v.clone() } else { format!("{h}: {v}") })
+                            .map(|(v, h)| {
+                                if h.is_empty() {
+                                    v.clone()
+                                } else {
+                                    format!("{h}: {v}")
+                                }
+                            })
                             .collect();
                         let lead = match head.first() {
-                            Some(h) if !h.is_empty() && first.chars().all(|c| c.is_ascii_digit()) => format!("{h} {first}"),
+                            Some(h)
+                                if !h.is_empty() && first.chars().all(|c| c.is_ascii_digit()) =>
+                            {
+                                format!("{h} {first}")
+                            }
                             _ => first.to_owned(),
                         };
                         vtree::column(id.as_str()).gap("none").children([
                             vtree::text(format!("{id}-name")).text(lead),
-                            vtree::text(format!("{id}-values")).variant("caption").text(rest.join(" · ")),
+                            vtree::text(format!("{id}-values"))
+                                .variant("caption")
+                                .text(rest.join(" · ")),
                         ])
                     });
                     nodes.push(vtree::list(list.as_str()).children(shown));
@@ -172,27 +226,39 @@ impl Output {
                 Block::Code(text) => {
                     let id = ids.take(&format!("{prefix}-code"));
                     if text.is_empty() {
-                        nodes.push(vtree::text(id).variant("caption").text("The result is empty."));
+                        nodes.push(
+                            vtree::text(id)
+                                .variant("caption")
+                                .text("The result is empty."),
+                        );
                         continue;
                     }
                     nodes.push(vtree::text(id.as_str()).variant("code").text(text.as_str()));
                     if counts {
                         let lines = text.lines().count();
                         let chars = text.chars().count();
-                        nodes.push(vtree::badge(format!("{id}-size")).variant("info").text(format!(
-                            "{lines} line{} · {chars} character{}",
-                            if lines == 1 { "" } else { "s" },
-                            if chars == 1 { "" } else { "s" },
-                        )));
+                        nodes.push(vtree::badge(format!("{id}-size")).variant("info").text(
+                            format!(
+                                "{lines} line{} · {chars} character{}",
+                                if lines == 1 { "" } else { "s" },
+                                if chars == 1 { "" } else { "s" },
+                            ),
+                        ));
                     }
                 }
-                Block::Text(text) => nodes.push(vtree::text(ids.take(&format!("{prefix}-text"))).text(text.as_str())),
+                Block::Text(text) => {
+                    nodes.push(vtree::text(ids.take(&format!("{prefix}-text"))).text(text.as_str()))
+                }
                 Block::List(items) => {
                     let list = ids.take(&format!("{prefix}-list"));
                     let shown = items.iter().take(MOST).map(|item| {
                         vtree::text(ids.take(&format!("{list}-{}", slug(item)))).text(item.as_str())
                     });
-                    nodes.push(vtree::list(list.as_str()).empty("Nothing found.").children(shown));
+                    nodes.push(
+                        vtree::list(list.as_str())
+                            .empty("Nothing found.")
+                            .children(shown),
+                    );
                     nodes.extend(more(&mut ids, prefix, items.len()));
                 }
                 Block::Verdict { ok, text } => nodes.push(
@@ -206,9 +272,11 @@ impl Output {
                         .src(img::data_uri(png))
                         .alt(alt.as_str()),
                 ),
-                Block::Note(text) => {
-                    nodes.push(vtree::text(ids.take(&format!("{prefix}-note"))).variant("caption").text(text.as_str()))
-                }
+                Block::Note(text) => nodes.push(
+                    vtree::text(ids.take(&format!("{prefix}-note")))
+                        .variant("caption")
+                        .text(text.as_str()),
+                ),
             }
         }
         nodes
@@ -261,7 +329,11 @@ pub fn slug(label: &str) -> String {
     for c in label.chars().flat_map(char::to_lowercase) {
         if c.is_ascii_alphanumeric() {
             out.push(c);
-        } else if let Some(d) = "₀₁₂₃₄₅₆₇₈₉".chars().position(|s| s == c).or_else(|| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().position(|s| s == c)) {
+        } else if let Some(d) = "₀₁₂₃₄₅₆₇₈₉"
+            .chars()
+            .position(|s| s == c)
+            .or_else(|| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().position(|s| s == c))
+        {
             out.push(char::from(b'0' + d as u8));
         } else if let Some(name) = greek(c) {
             if !out.is_empty() && !out.ends_with('-') {
@@ -277,13 +349,18 @@ pub fn slug(label: &str) -> String {
         }
     }
     let out = out.trim_end_matches('-');
-    if out.is_empty() { "item".into() } else { out.into() }
+    if out.is_empty() {
+        "item".into()
+    } else {
+        out.into()
+    }
 }
 
 fn greek(c: char) -> Option<&'static str> {
     const NAMES: [&str; 24] = [
-        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi",
-        "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
+        "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi",
+        "chi", "psi", "omega",
     ];
     // Final sigma sits between rho and sigma.
     let i = match c {
@@ -299,9 +376,19 @@ fn greek(c: char) -> Option<&'static str> {
 
 /// Aligned `label: value` lines.
 fn aligned(rows: &[(String, String)]) -> String {
-    let width = rows.iter().map(|(l, _)| l.chars().count()).max().unwrap_or(0);
+    let width = rows
+        .iter()
+        .map(|(l, _)| l.chars().count())
+        .max()
+        .unwrap_or(0);
     rows.iter()
-        .map(|(l, v)| if l.is_empty() { v.clone() } else { format!("{l}:{} {v}", " ".repeat(width - l.chars().count())) })
+        .map(|(l, v)| {
+            if l.is_empty() {
+                v.clone()
+            } else {
+                format!("{l}:{} {v}", " ".repeat(width - l.chars().count()))
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -310,7 +397,13 @@ fn aligned(rows: &[(String, String)]) -> String {
 fn columns(rows: &[Vec<String>]) -> String {
     let n = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..n)
-        .map(|i| rows.iter().filter_map(|r| r.get(i)).map(|c| c.chars().count()).max().unwrap_or(0))
+        .map(|i| {
+            rows.iter()
+                .filter_map(|r| r.get(i))
+                .map(|c| c.chars().count())
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
     rows.iter()
         .map(|r| {
@@ -342,7 +435,9 @@ mod tests {
 
     #[test]
     fn plain_text() {
-        let o = Output::default().facts(&[("Net", "100".into()), ("Tax", "20".into())]).note("Rounded.");
+        let o = Output::default()
+            .facts(&[("Net", "100".into()), ("Tax", "20".into())])
+            .note("Rounded.");
         assert_eq!(o.plain(), "Net: 100\nTax: 20\n\nRounded.");
         let t = Output::default().table(&["Year", "Balance"], [vec!["1", "900"], vec!["2", "0"]]);
         assert_eq!(t.plain(), "Year  Balance\n1     900\n2     0");

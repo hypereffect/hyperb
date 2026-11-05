@@ -17,7 +17,10 @@ fn sniff(text: &str, mode: &str) -> char {
         "pipe" => '|',
         _ => {
             let first = text.lines().next().unwrap_or("");
-            [',', ';', '\t', '|'].into_iter().max_by_key(|d| first.matches(*d).count()).unwrap_or(',')
+            [',', ';', '\t', '|']
+                .into_iter()
+                .max_by_key(|d| first.matches(*d).count())
+                .unwrap_or(',')
         }
     }
 }
@@ -99,7 +102,9 @@ fn csv_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows = parse_csv(text, sniff(text, o.mode))?;
     let typed = o.check(0);
     let out: Vec<Value> = if o.check(1) {
-        rows.iter().map(|r| Value::Array(r.iter().map(|c| cell_value(c, typed)).collect())).collect()
+        rows.iter()
+            .map(|r| Value::Array(r.iter().map(|c| cell_value(c, typed)).collect()))
+            .collect()
     } else {
         let header = &rows[0];
         rows[1..]
@@ -107,7 +112,10 @@ fn csv_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
             .map(|r| {
                 let mut m = Map::new();
                 for (i, h) in header.iter().enumerate() {
-                    m.insert(h.trim().to_owned(), r.get(i).map_or(Value::Null, |c| cell_value(c, typed)));
+                    m.insert(
+                        h.trim().to_owned(),
+                        r.get(i).map_or(Value::Null, |c| cell_value(c, typed)),
+                    );
                 }
                 Value::Object(m)
             })
@@ -121,7 +129,13 @@ fn csv_to_markdown(text: &str, o: &mut Opts) -> Result<Output, String> {
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let esc = |s: &str| s.trim().replace('|', "\\|").replace('\n', "<br>");
     let width: Vec<usize> = (0..cols)
-        .map(|i| rows.iter().map(|r| r.get(i).map_or(0, |c| esc(c).chars().count())).max().unwrap_or(0).max(3))
+        .map(|i| {
+            rows.iter()
+                .map(|r| r.get(i).map_or(0, |c| esc(c).chars().count()))
+                .max()
+                .unwrap_or(0)
+                .max(3)
+        })
         .collect();
     let line = |r: &Vec<String>| {
         let cells: Vec<String> = (0..cols)
@@ -133,7 +147,14 @@ fn csv_to_markdown(text: &str, o: &mut Opts) -> Result<Output, String> {
         format!("| {} |", cells.join(" | "))
     };
     let mut out = vec![line(&rows[0])];
-    out.push(format!("|{}|", width.iter().map(|w| format!(" {} ", "-".repeat(*w))).collect::<Vec<_>>().join("|")));
+    out.push(format!(
+        "|{}|",
+        width
+            .iter()
+            .map(|w| format!(" {} ", "-".repeat(*w)))
+            .collect::<Vec<_>>()
+            .join("|")
+    ));
     out.extend(rows[1..].iter().map(line));
     Ok(out.join("\n").into())
 }
@@ -142,20 +163,43 @@ fn table_format(text: &str, o: &mut Opts) -> Result<Output, String> {
     let rows = parse_csv(text, sniff(text, o.mode))?;
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let width: Vec<usize> = (0..cols)
-        .map(|i| rows.iter().map(|r| r.get(i).map_or(0, |c| c.trim().chars().count())).max().unwrap_or(0))
+        .map(|i| {
+            rows.iter()
+                .map(|r| r.get(i).map_or(0, |c| c.trim().chars().count()))
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
-    let numeric = |i: usize| rows[1..].iter().all(|r| r.get(i).is_none_or(|c| c.trim().is_empty() || super::parse_number(c).is_some()));
+    let numeric = |i: usize| {
+        rows[1..].iter().all(|r| {
+            r.get(i)
+                .is_none_or(|c| c.trim().is_empty() || super::parse_number(c).is_some())
+        })
+    };
     let line = |r: &Vec<String>, head: bool| {
         let cells: Vec<String> = (0..cols)
             .map(|i| {
                 let c = r.get(i).map_or("", |c| c.trim());
                 let pad = " ".repeat(width[i] - c.chars().count());
-                if numeric(i) && !head { format!("{pad}{c}") } else { format!("{c}{pad}") }
+                if numeric(i) && !head {
+                    format!("{pad}{c}")
+                } else {
+                    format!("{c}{pad}")
+                }
             })
             .collect();
         format!("│ {} │", cells.join(" │ "))
     };
-    let rule = |l: &str, m: &str, r: &str| format!("{l}{}{r}", width.iter().map(|w| "─".repeat(w + 2)).collect::<Vec<_>>().join(m));
+    let rule = |l: &str, m: &str, r: &str| {
+        format!(
+            "{l}{}{r}",
+            width
+                .iter()
+                .map(|w| "─".repeat(w + 2))
+                .collect::<Vec<_>>()
+                .join(m)
+        )
+    };
     let mut out = vec![rule("┌", "┬", "┐"), line(&rows[0], true)];
     if !o.flag {
         out.push(rule("├", "┼", "┤"));
@@ -180,7 +224,11 @@ fn csv_validate(text: &str, o: &mut Opts) -> Result<Output, String> {
     }
     for (i, r) in rows.iter().enumerate().skip(1) {
         if r.len() != cols {
-            problems.push(format!("Row {}: {} cells, but the header has {cols}.", i + 1, r.len()));
+            problems.push(format!(
+                "Row {}: {} cells, but the header has {cols}.",
+                i + 1,
+                r.len()
+            ));
         }
         let empty = r.iter().filter(|c| c.trim().is_empty()).count();
         if empty > 0 && o.flag {
@@ -191,18 +239,29 @@ fn csv_validate(text: &str, o: &mut Opts) -> Result<Output, String> {
         '\t' => "tabs".to_owned(),
         d => format!("“{d}”"),
     };
-    let summary = format!("{} rows of {cols} columns, separated by {name}.", rows.len() - 1);
+    let summary = format!(
+        "{} rows of {cols} columns, separated by {name}.",
+        rows.len() - 1
+    );
     if problems.is_empty() {
         return Ok(verdict(true, format!("Valid: {summary}")));
     }
     let n = problems.len();
-    Ok(verdict(false, format!("{n} problem{}. {summary}", if n == 1 { "" } else { "s" })).list(problems))
+    Ok(verdict(
+        false,
+        format!("{n} problem{}. {summary}", if n == 1 { "" } else { "s" }),
+    )
+    .list(problems))
 }
 
 fn duplicate_finder(text: &str, o: &mut Opts) -> Result<Output, String> {
     let mut counts: Vec<(String, Vec<usize>)> = Vec::new();
     for (i, l) in text.lines().enumerate() {
-        let key = if o.flag { l.trim().to_lowercase() } else { l.trim().to_owned() };
+        let key = if o.flag {
+            l.trim().to_lowercase()
+        } else {
+            l.trim().to_owned()
+        };
         if key.is_empty() {
             continue;
         }
@@ -214,7 +273,16 @@ fn duplicate_finder(text: &str, o: &mut Opts) -> Result<Output, String> {
     let dups: Vec<Vec<String>> = counts
         .iter()
         .filter(|c| c.1.len() > 1)
-        .map(|(k, at)| vec![k.clone(), format!("{}×", at.len()), at.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")])
+        .map(|(k, at)| {
+            vec![
+                k.clone(),
+                format!("{}×", at.len()),
+                at.iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ]
+        })
         .collect();
     let dups_len = dups.len();
     if dups.is_empty() {
@@ -227,10 +295,15 @@ fn duplicate_finder(text: &str, o: &mut Opts) -> Result<Output, String> {
 
 fn yaml_key(k: &str) -> String {
     let plain = !k.is_empty()
-        && k.chars().all(|c| c.is_alphanumeric() || "_-./ ".contains(c))
+        && k.chars()
+            .all(|c| c.is_alphanumeric() || "_-./ ".contains(c))
         && !k.starts_with([' ', '-'])
         && !k.ends_with(' ');
-    if plain { k.to_owned() } else { serde_json::to_string(k).unwrap() }
+    if plain {
+        k.to_owned()
+    } else {
+        serde_json::to_string(k).unwrap()
+    }
 }
 
 fn yaml_string(s: &str) -> String {
@@ -240,9 +313,16 @@ fn yaml_string(s: &str) -> String {
         || s.contains(": ")
         || s.contains(" #")
         || s.contains('\n')
-        || matches!(s.to_lowercase().as_str(), "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "~")
+        || matches!(
+            s.to_lowercase().as_str(),
+            "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "~"
+        )
         || s.parse::<f64>().is_ok();
-    if special { serde_json::to_string(s).unwrap() } else { s.to_owned() }
+    if special {
+        serde_json::to_string(s).unwrap()
+    } else {
+        s.to_owned()
+    }
 }
 
 fn to_yaml(v: &Value, indent: usize, out: &mut String) {
@@ -359,7 +439,9 @@ fn key_colon(s: &str) -> Option<usize> {
             (None, '"' | '\'') if i == 0 => quote = Some(c),
             (None, '[' | '{') => depth += 1,
             (None, ']' | '}') => depth -= 1,
-            (None, ':') if depth == 0 && (s[i + 1..].is_empty() || s[i + 1..].starts_with(' ')) => return Some(i),
+            (None, ':') if depth == 0 && (s[i + 1..].is_empty() || s[i + 1..].starts_with(' ')) => {
+                return Some(i);
+            }
             _ => {}
         }
     }
@@ -377,10 +459,18 @@ fn yaml_plain(s: &str) -> Value {
     if let Ok(n) = s.parse::<i64>() {
         return Value::from(n);
     }
-    if let Some(h) = s.strip_prefix("0x").and_then(|h| i64::from_str_radix(h, 16).ok()) {
+    if let Some(h) = s
+        .strip_prefix("0x")
+        .and_then(|h| i64::from_str_radix(h, 16).ok())
+    {
         return Value::from(h);
     }
-    if let Some(n) = s.parse::<f64>().ok().filter(|f| f.is_finite()).and_then(serde_json::Number::from_f64) {
+    if let Some(n) = s
+        .parse::<f64>()
+        .ok()
+        .filter(|f| f.is_finite())
+        .and_then(serde_json::Number::from_f64)
+    {
         return Value::Number(n);
     }
     if let Some(q) = s.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
@@ -462,7 +552,11 @@ fn flow(b: &[u8], s: &str, pos: &mut usize) -> Result<Value, ()> {
                         }
                         *pos += 1;
                         skip(pos);
-                        let v = if matches!(b.get(*pos), Some(b'[' | b'{')) { flow(b, s, pos)? } else { scalar(pos, b",}") };
+                        let v = if matches!(b.get(*pos), Some(b'[' | b'{')) {
+                            flow(b, s, pos)?
+                        } else {
+                            scalar(pos, b",}")
+                        };
                         m.insert(k, v);
                     }
                     None => return Err(()),
@@ -478,7 +572,10 @@ impl Yaml {
         let mut lines = Vec::new();
         for (n, raw) in text.lines().enumerate() {
             if raw.contains('\t') && raw.trim_start_matches(' ').starts_with('\t') {
-                return Err(format!("Line {}: YAML is indented with spaces, not tabs.", n + 1));
+                return Err(format!(
+                    "Line {}: YAML is indented with spaces, not tabs.",
+                    n + 1
+                ));
             }
             let t = raw.trim_end();
             if t == "---" || t == "..." || t.starts_with('%') {
@@ -525,7 +622,10 @@ impl Yaml {
             body.pop();
         }
         let mut s = if fold {
-            body.split(|l| l.is_empty()).map(|p| p.join(" ")).collect::<Vec<_>>().join("\n")
+            body.split(|l| l.is_empty())
+                .map(|p| p.join(" "))
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             body.join("\n")
         };
@@ -599,7 +699,11 @@ impl Yaml {
             self.i += 1;
             let value = if rest.is_empty() {
                 match self.peek() {
-                    Some((i2, l2)) if i2 > indent || (i2 == indent && (l2 == "-" || l2.starts_with("- "))) => self.value(i2)?,
+                    Some((i2, l2))
+                        if i2 > indent || (i2 == indent && (l2 == "-" || l2.starts_with("- "))) =>
+                    {
+                        self.value(i2)?
+                    }
                     _ => Value::Null,
                 }
             } else if rest.starts_with('|') || rest.starts_with('>') {
@@ -626,7 +730,11 @@ fn yaml_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
 fn json_repair(text: &str, o: &mut Opts) -> Result<Output, String> {
     let v = lenient_json(text)?;
     let valid = serde_json::from_str::<Value>(text).is_ok();
-    Ok(Output::from(json_text(&v, o.number)).note(if valid { "It was valid already." } else { "Repaired." }))
+    Ok(Output::from(json_text(&v, o.number)).note(if valid {
+        "It was valid already."
+    } else {
+        "Repaired."
+    }))
 }
 
 fn env_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -637,7 +745,9 @@ fn env_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
             continue;
         }
         let l = l.strip_prefix("export ").unwrap_or(l);
-        let (k, v) = l.split_once('=').ok_or_else(|| format!("Line {}: expected KEY=value.", n + 1))?;
+        let (k, v) = l
+            .split_once('=')
+            .ok_or_else(|| format!("Line {}: expected KEY=value.", n + 1))?;
         let v = v.trim();
         let v = if let Some(q) = v.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
             q.replace("\\n", "\n").replace("\\\"", "\"")
@@ -653,7 +763,11 @@ fn env_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
             .iter()
             .map(|(k, v)| {
                 let v = v.as_str().unwrap_or("");
-                if v.contains([' ', '#', '"', '\n']) { format!("{k}={}", serde_json::to_string(v).unwrap()) } else { format!("{k}={v}") }
+                if v.contains([' ', '#', '"', '\n']) {
+                    format!("{k}={}", serde_json::to_string(v).unwrap())
+                } else {
+                    format!("{k}={v}")
+                }
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -663,7 +777,8 @@ fn env_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
             out.trim_end().to_owned()
         }
         _ => json_text(&Value::Object(m), 2),
-    }.into())
+    }
+    .into())
 }
 
 // Sorting
@@ -697,13 +812,22 @@ pub fn natural(a: &str, b: &str) -> Ordering {
     ca.len().cmp(&cb.len()).then(a.cmp(b))
 }
 
-fn sorted_lines(text: &str, o: &Opts, key: impl Fn(&str) -> Option<Vec<f64>>, what: &str) -> Result<Output, String> {
+fn sorted_lines(
+    text: &str,
+    o: &Opts,
+    key: impl Fn(&str) -> Option<Vec<f64>>,
+    what: &str,
+) -> Result<Output, String> {
     let mut keyed: Vec<(Vec<f64>, &str)> = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
         keyed.push((key(l).ok_or_else(|| format!("“{l}” is not {what}."))?, l));
     }
     keyed.sort_by(|a, b| {
-        a.0.iter().zip(&b.0).map(|(x, y)| x.total_cmp(y)).find(|o| *o != Ordering::Equal).unwrap_or(a.0.len().cmp(&b.0.len()))
+        a.0.iter()
+            .zip(&b.0)
+            .map(|(x, y)| x.total_cmp(y))
+            .find(|o| *o != Ordering::Equal)
+            .unwrap_or(a.0.len().cmp(&b.0.len()))
     });
     if o.mode == "desc" {
         keyed.reverse();
@@ -711,11 +835,20 @@ fn sorted_lines(text: &str, o: &Opts, key: impl Fn(&str) -> Option<Vec<f64>>, wh
     if o.flag {
         keyed.dedup_by(|a, b| a.1 == b.1);
     }
-    Ok(keyed.iter().map(|k| k.1).collect::<Vec<_>>().join("\n").into())
+    Ok(keyed
+        .iter()
+        .map(|k| k.1)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into())
 }
 
 fn natural_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
-    let mut v: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let mut v: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     v.sort_by(|a, b| natural(a, b));
     if o.mode == "desc" {
         v.reverse();
@@ -730,10 +863,18 @@ pub fn ip_key(s: &str) -> Option<Vec<f64>> {
     let s = s.split('/').next()?;
     if s.contains(':') {
         let ip: std::net::Ipv6Addr = s.parse().ok()?;
-        return Some(std::iter::once(1.0).chain(ip.segments().iter().map(|x| *x as f64)).collect());
+        return Some(
+            std::iter::once(1.0)
+                .chain(ip.segments().iter().map(|x| *x as f64))
+                .collect(),
+        );
     }
     let ip: std::net::Ipv4Addr = s.parse().ok()?;
-    Some(std::iter::once(0.0).chain(ip.octets().iter().map(|x| *x as f64)).collect())
+    Some(
+        std::iter::once(0.0)
+            .chain(ip.octets().iter().map(|x| *x as f64))
+            .collect(),
+    )
 }
 
 fn ip_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -744,13 +885,19 @@ fn version_key(s: &str) -> Option<Vec<f64>> {
     let t = s.trim_start_matches(['v', 'V']);
     let (core, pre) = t.split_once('-').map_or((t, None), |(c, p)| (c, Some(p)));
     let core = core.split('+').next()?;
-    let mut k: Vec<f64> = core.split('.').map(|p| p.parse::<f64>().ok()).collect::<Option<_>>()?;
+    let mut k: Vec<f64> = core
+        .split('.')
+        .map(|p| p.parse::<f64>().ok())
+        .collect::<Option<_>>()?;
     k.resize(4, 0.0);
     // A pre-release sorts before its release.
     k.push(if pre.is_some() { 0.0 } else { 1.0 });
     if let Some(p) = pre {
         for part in p.split('.') {
-            k.push(part.parse().unwrap_or_else(|_| part.bytes().fold(0.0, |a, b| a * 256.0 + b as f64)));
+            k.push(
+                part.parse()
+                    .unwrap_or_else(|_| part.bytes().fold(0.0, |a, b| a * 256.0 + b as f64)),
+            );
         }
     }
     Some(k)
@@ -788,7 +935,12 @@ fn size_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
 }
 
 fn date_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
-    sorted_lines(text, o, |s| super::dates::parse_datetime(s).map(|t| vec![t]), "a date")
+    sorted_lines(
+        text,
+        o,
+        |s| super::dates::parse_datetime(s).map(|t| vec![t]),
+        "a date",
+    )
 }
 
 fn domain_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -797,7 +949,14 @@ fn domain_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(|l| {
-            let host = l.split("://").last().unwrap_or(l).split(['/', '?', '#', ':']).next().unwrap_or(l).to_lowercase();
+            let host = l
+                .split("://")
+                .last()
+                .unwrap_or(l)
+                .split(['/', '?', '#', ':'])
+                .next()
+                .unwrap_or(l)
+                .to_lowercase();
             let host = host.strip_prefix("www.").unwrap_or(&host).to_owned();
             // By the registrable name first: example.com before www.example.org.
             let key = host.rsplit('.').collect::<Vec<_>>().join(".");
@@ -822,8 +981,18 @@ fn csv_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let i = header
         .iter()
         .position(|h| h.trim().eq_ignore_ascii_case(col))
-        .or_else(|| col.parse::<usize>().ok().filter(|n| *n >= 1 && *n <= header.len()).map(|n| n - 1))
-        .ok_or_else(|| format!("There is no column “{col}”; the columns are {}.", header.join(", ")))?;
+        .or_else(|| {
+            col.parse::<usize>()
+                .ok()
+                .filter(|n| *n >= 1 && *n <= header.len())
+                .map(|n| n - 1)
+        })
+        .ok_or_else(|| {
+            format!(
+                "There is no column “{col}”; the columns are {}.",
+                header.join(", ")
+            )
+        })?;
     let mut body: Vec<&Vec<String>> = rows[1..].iter().collect();
     let get = |r: &Vec<String>| r.get(i).cloned().unwrap_or_default();
     body.sort_by(|a, b| {
@@ -839,18 +1008,35 @@ fn csv_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
     let d = delim.to_string();
     let line = |r: &Vec<String>| {
         r.iter()
-            .map(|c| if c.contains([delim, '"', '\n']) { format!("\"{}\"", c.replace('"', "\"\"")) } else { c.clone() })
+            .map(|c| {
+                if c.contains([delim, '"', '\n']) {
+                    format!("\"{}\"", c.replace('"', "\"\""))
+                } else {
+                    c.clone()
+                }
+            })
             .collect::<Vec<_>>()
             .join(&d)
     };
-    Ok(std::iter::once(header).chain(body).map(line).collect::<Vec<_>>().join("\n").into())
+    Ok(std::iter::once(header)
+        .chain(body)
+        .map(line)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into())
 }
 
 fn sort_keys(v: &mut Value, desc: bool) {
     match v {
         Value::Object(m) => {
             let mut entries: Vec<(String, Value)> = std::mem::take(m).into_iter().collect();
-            entries.sort_by(|a, b| if desc { natural(&b.0, &a.0) } else { natural(&a.0, &b.0) });
+            entries.sort_by(|a, b| {
+                if desc {
+                    natural(&b.0, &a.0)
+                } else {
+                    natural(&a.0, &b.0)
+                }
+            });
             for (k, mut v) in entries {
                 sort_keys(&mut v, desc);
                 m.insert(k, v);
@@ -871,9 +1057,16 @@ fn json_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
         let Value::Array(a) = &mut v else {
             return Err("To sort by a key, the JSON must be an array of objects.".into());
         };
-        let key = |x: &Value| x.pointer(&format!("/{}", by.replace('.', "/"))).cloned().unwrap_or(Value::Null);
+        let key = |x: &Value| {
+            x.pointer(&format!("/{}", by.replace('.', "/")))
+                .cloned()
+                .unwrap_or(Value::Null)
+        };
         a.sort_by(|x, y| match (key(x), key(y)) {
-            (Value::Number(p), Value::Number(q)) => p.as_f64().unwrap_or(0.0).total_cmp(&q.as_f64().unwrap_or(0.0)),
+            (Value::Number(p), Value::Number(q)) => p
+                .as_f64()
+                .unwrap_or(0.0)
+                .total_cmp(&q.as_f64().unwrap_or(0.0)),
             (Value::String(p), Value::String(q)) => natural(&p, &q),
             (p, q) => p.to_string().cmp(&q.to_string()),
         });
@@ -886,7 +1079,13 @@ fn json_sort(text: &str, o: &mut Opts) -> Result<Output, String> {
 
 // The menus
 
-const DELIMITERS: super::Menu = &[("auto", "Detect"), ("comma", "Commas"), ("semicolon", "Semicolons"), ("tab", "Tabs"), ("pipe", "Pipes")];
+const DELIMITERS: super::Menu = &[
+    ("auto", "Detect"),
+    ("comma", "Commas"),
+    ("semicolon", "Semicolons"),
+    ("tab", "Tabs"),
+    ("pipe", "Pipes"),
+];
 const ORDER: super::Menu = &[("asc", "Ascending"), ("desc", "Descending")];
 const DEDUP: &[&str] = &["Remove duplicates"];
 
@@ -935,41 +1134,86 @@ pub const CONVERT: &[Tool] = &[
 ];
 
 pub const SORT: &[Tool] = &[
-    tool("natural-sort", "List sorter", "Sorts a list in natural order, so “item 2” comes before “item 10”.", natural_sort)
-        .text("One item per line")
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("sort-numbers", "Number sorter", "Sorts the numbers in a text.", text::sort_numbers)
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("ip-sort", "IP address sorter", "Sorts IPv4 and IPv6 addresses numerically.", ip_sort)
-        .text("One address per line")
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("version-sort", "Version number sorter", "Sorts version numbers: 1.2 < 1.10 < 2.0-beta < 2.0.", version_sort)
-        .text("One version per line")
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("size-sort", "File size sorter", "Sorts sizes such as 1.5 MB, 200 KiB and 3 GB.", size_sort)
-        .text("One size per line")
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("date-sort", "Date and time sorter", "Sorts dates in ISO, US or European formats.", date_sort)
-        .text("One date per line")
-        .selects(&[("Order", ORDER)])
-        .checks(DEDUP),
-    tool("domain-sort", "Domain and URL sorter", "Sorts URLs by domain, grouping subdomains.", domain_sort)
-        .text("One URL per line")
-        .selects(&[("Order", ORDER)])
-        .checks(&["Remove duplicates", "Sort by the full host name"]),
-    tool("csv-sort", "CSV column sorter", "Sorts CSV rows by a column, by name or number.", csv_sort)
-        .text("CSV")
-        .fields(&[("Column", "1")])
-        .selects(&[("Order", ORDER)]),
-    tool("json-sort", "JSON sorter", "Sorts JSON object keys, or an array of objects by a key.", json_sort)
-        .text("JSON")
-        .fields(&[("Sort array by key (empty: sort keys)", "")])
-        .selects(&[("Order", ORDER)]),
+    tool(
+        "natural-sort",
+        "List sorter",
+        "Sorts a list in natural order, so “item 2” comes before “item 10”.",
+        natural_sort,
+    )
+    .text("One item per line")
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "sort-numbers",
+        "Number sorter",
+        "Sorts the numbers in a text.",
+        text::sort_numbers,
+    )
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "ip-sort",
+        "IP address sorter",
+        "Sorts IPv4 and IPv6 addresses numerically.",
+        ip_sort,
+    )
+    .text("One address per line")
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "version-sort",
+        "Version number sorter",
+        "Sorts version numbers: 1.2 < 1.10 < 2.0-beta < 2.0.",
+        version_sort,
+    )
+    .text("One version per line")
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "size-sort",
+        "File size sorter",
+        "Sorts sizes such as 1.5 MB, 200 KiB and 3 GB.",
+        size_sort,
+    )
+    .text("One size per line")
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "date-sort",
+        "Date and time sorter",
+        "Sorts dates in ISO, US or European formats.",
+        date_sort,
+    )
+    .text("One date per line")
+    .selects(&[("Order", ORDER)])
+    .checks(DEDUP),
+    tool(
+        "domain-sort",
+        "Domain and URL sorter",
+        "Sorts URLs by domain, grouping subdomains.",
+        domain_sort,
+    )
+    .text("One URL per line")
+    .selects(&[("Order", ORDER)])
+    .checks(&["Remove duplicates", "Sort by the full host name"]),
+    tool(
+        "csv-sort",
+        "CSV column sorter",
+        "Sorts CSV rows by a column, by name or number.",
+        csv_sort,
+    )
+    .text("CSV")
+    .fields(&[("Column", "1")])
+    .selects(&[("Order", ORDER)]),
+    tool(
+        "json-sort",
+        "JSON sorter",
+        "Sorts JSON object keys, or an array of objects by a key.",
+        json_sort,
+    )
+    .text("JSON")
+    .fields(&[("Sort array by key (empty: sort keys)", "")])
+    .selects(&[("Order", ORDER)]),
 ];
 
 #[cfg(test)]
@@ -986,9 +1230,18 @@ mod tests {
 
     #[test]
     fn csv() {
-        assert_eq!(parse_csv("a,\"b,\"\"c\"\"\"\n1,2\n", ',').unwrap(), vec![vec!["a", "b,\"c\""], vec!["1", "2"]]);
-        assert_eq!(run(csv_to_json, "n;x\na;1", "auto"), "[\n  {\n    \"n\": \"a\",\n    \"x\": \"1\"\n  }\n]");
-        assert_eq!(run(csv_to_markdown, "a,b\n1,22", "auto"), "| a   | b   |\n| --- | --- |\n| 1   | 22  |");
+        assert_eq!(
+            parse_csv("a,\"b,\"\"c\"\"\"\n1,2\n", ',').unwrap(),
+            vec![vec!["a", "b,\"c\""], vec!["1", "2"]]
+        );
+        assert_eq!(
+            run(csv_to_json, "n;x\na;1", "auto"),
+            "[\n  {\n    \"n\": \"a\",\n    \"x\": \"1\"\n  }\n]"
+        );
+        assert_eq!(
+            run(csv_to_markdown, "a,b\n1,22", "auto"),
+            "| a   | b   |\n| --- | --- |\n| 1   | 22  |"
+        );
     }
 
     #[test]
@@ -1004,7 +1257,11 @@ mod tests {
         want["nested"]["t"] = json!("line1\nline2\n");
         assert_eq!(back, want);
         assert_eq!(
-            run(yaml_to_json, "# c\na: [1, b, {c: d}] # x\nb:\n- 'it''s'\n- \"q\\n\"\n", ""),
+            run(
+                yaml_to_json,
+                "# c\na: [1, b, {c: d}] # x\nb:\n- 'it''s'\n- \"q\\n\"\n",
+                ""
+            ),
             "{\n  \"a\": [\n    1,\n    \"b\",\n    {\n      \"c\": \"d\"\n    }\n  ],\n  \"b\": [\n    \"it's\",\n    \"q\\n\"\n  ]\n}"
         );
     }
@@ -1014,9 +1271,21 @@ mod tests {
     #[test]
     fn sorting() {
         assert_eq!(run(natural_sort, "a10\na2\nA1", "asc"), "A1\na2\na10");
-        assert_eq!(run(ip_sort, "10.0.0.10\n10.0.0.9\n::1", "asc"), "10.0.0.9\n10.0.0.10\n::1");
-        assert_eq!(run(version_sort, "2.0\n1.10\n2.0-beta\n1.2", "asc"), "1.2\n1.10\n2.0-beta\n2.0");
-        assert_eq!(run(size_sort, "1 GB\n200 KiB\n1.5MB", "asc"), "200 KiB\n1.5MB\n1 GB");
-        assert_eq!(run(domain_sort, "https://b.org/x\nwww.a.com\nmail.a.com", "asc"), "www.a.com\nmail.a.com\nhttps://b.org/x");
+        assert_eq!(
+            run(ip_sort, "10.0.0.10\n10.0.0.9\n::1", "asc"),
+            "10.0.0.9\n10.0.0.10\n::1"
+        );
+        assert_eq!(
+            run(version_sort, "2.0\n1.10\n2.0-beta\n1.2", "asc"),
+            "1.2\n1.10\n2.0-beta\n2.0"
+        );
+        assert_eq!(
+            run(size_sort, "1 GB\n200 KiB\n1.5MB", "asc"),
+            "200 KiB\n1.5MB\n1 GB"
+        );
+        assert_eq!(
+            run(domain_sort, "https://b.org/x\nwww.a.com\nmail.a.com", "asc"),
+            "www.a.com\nmail.a.com\nhttps://b.org/x"
+        );
     }
 }

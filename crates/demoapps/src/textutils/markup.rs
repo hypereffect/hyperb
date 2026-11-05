@@ -1,8 +1,8 @@
 //! Tools on markup: HTML and XML formatting and escaping, XML and JSON,
 //! HTML and Markdown.
 
-use super::Output;
 use super::Opts;
+use super::Output;
 use super::code::json_text;
 use hypereffect::{Map, Value};
 
@@ -76,12 +76,18 @@ fn tokenize(src: &str) -> Result<Vec<Token<'_>>, String> {
                 continue;
             }
             let tag = Token::Open(name, attributes(&inner[name_end..]), closed);
-            let raw_text = matches!(name.to_ascii_lowercase().as_str(), "script" | "style" | "pre" | "textarea");
+            let raw_text = matches!(
+                name.to_ascii_lowercase().as_str(),
+                "script" | "style" | "pre" | "textarea"
+            );
             out.push(tag);
             if raw_text && !closed {
                 // Their content is not markup: keep it to the closing tag.
                 let close = format!("</{name}");
-                let i = rest.to_ascii_lowercase().find(&close.to_ascii_lowercase()).unwrap_or(rest.len());
+                let i = rest
+                    .to_ascii_lowercase()
+                    .find(&close.to_ascii_lowercase())
+                    .unwrap_or(rest.len());
                 if i > 0 {
                     out.push(Token::Other(&rest[..i]));
                 }
@@ -99,7 +105,9 @@ fn attributes(mut s: &str) -> Vec<(&str, String)> {
         if s.is_empty() {
             return out;
         }
-        let end = s.find(|c: char| c == '=' || c.is_whitespace()).unwrap_or(s.len());
+        let end = s
+            .find(|c: char| c == '=' || c.is_whitespace())
+            .unwrap_or(s.len());
         let name = &s[..end];
         s = s[end..].trim_start();
         let Some(after) = s.strip_prefix('=') else {
@@ -123,11 +131,12 @@ fn attributes(mut s: &str) -> Vec<(&str, String)> {
 }
 
 const VOID: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
+    "wbr",
 ];
 const INLINE: &[&str] = &[
-    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "dfn", "em", "i", "kbd", "mark", "q", "s",
-    "samp", "small", "span", "strong", "sub", "sup", "time", "u", "var", "label",
+    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "dfn", "em", "i", "kbd", "mark", "q",
+    "s", "samp", "small", "span", "strong", "sub", "sup", "time", "u", "var", "label",
 ];
 
 fn is_void(name: &str) -> bool {
@@ -289,7 +298,9 @@ pub fn xml(text: &str, o: &mut Opts) -> Result<Output, String> {
 // Escaping
 
 pub fn escape_attr(s: &str) -> String {
-    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;")
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
 }
 
 fn escape_html(s: &str) -> String {
@@ -358,7 +369,8 @@ pub fn html_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
     Ok(match o.mode {
         "unescape" => unescape(text),
         _ => escape_html(text),
-    }.into())
+    }
+    .into())
 }
 
 pub fn xml_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -370,7 +382,8 @@ pub fn xml_escape(text: &str, o: &mut Opts) -> Result<Output, String> {
             .replace('>', "&gt;")
             .replace('"', "&quot;")
             .replace('\'', "&apos;"),
-    }.into())
+    }
+    .into())
 }
 
 // XML and JSON
@@ -408,7 +421,11 @@ fn parse_xml(src: &str) -> Result<Node, String> {
             Token::Text(t) => stack.last_mut().unwrap().text.push_str(&unescape(t)),
             Token::Other(raw) => {
                 if let Some(data) = raw.strip_prefix("<![CDATA[") {
-                    stack.last_mut().unwrap().text.push_str(data.trim_end_matches("]]>"));
+                    stack
+                        .last_mut()
+                        .unwrap()
+                        .text
+                        .push_str(data.trim_end_matches("]]>"));
                 }
             }
         }
@@ -460,7 +477,13 @@ pub fn xml_to_json(text: &str, o: &mut Opts) -> Result<Output, String> {
 fn xml_name(key: &str) -> String {
     let name: String = key
         .chars()
-        .map(|c| if c.is_alphanumeric() || "_-.".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || "_-.".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
         name
@@ -494,19 +517,29 @@ fn value_xml(name: &str, v: &Value, depth: usize, indent: usize, out: &mut Strin
                 Value::String(s) => s.clone(),
                 v => v.to_string(),
             });
-            let children: Vec<_> = m.iter().filter(|(k, _)| !k.starts_with(['@', '#'])).collect();
+            let children: Vec<_> = m
+                .iter()
+                .filter(|(k, _)| !k.starts_with(['@', '#']))
+                .collect();
             if children.is_empty() {
                 let text = text.unwrap_or_default();
                 if text.is_empty() {
                     out.push_str(&format!("{pad}<{name}{attrs}/>{nl}"));
                 } else {
-                    out.push_str(&format!("{pad}<{name}{attrs}>{}</{name}>{nl}", xml_text(&text)));
+                    out.push_str(&format!(
+                        "{pad}<{name}{attrs}>{}</{name}>{nl}",
+                        xml_text(&text)
+                    ));
                 }
                 return;
             }
             out.push_str(&format!("{pad}<{name}{attrs}>{nl}"));
             if let Some(t) = text {
-                out.push_str(&format!("{}{}{nl}", " ".repeat((depth + 1) * indent), xml_text(&t)));
+                out.push_str(&format!(
+                    "{}{}{nl}",
+                    " ".repeat((depth + 1) * indent),
+                    xml_text(&t)
+                ));
             }
             for (k, v) in children {
                 value_xml(&xml_name(k), v, depth + 1, indent, out);
@@ -520,7 +553,9 @@ fn value_xml(name: &str, v: &Value, depth: usize, indent: usize, out: &mut Strin
 }
 
 fn xml_text(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub fn json_to_xml(text: &str, o: &mut Opts) -> Result<Output, String> {
@@ -573,7 +608,10 @@ pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<Output, String> {
         match t {
             Token::Open(name, attrs, _) => {
                 let attr = |k: &str| {
-                    attrs.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map_or("", |(_, v)| v.as_str())
+                    attrs
+                        .iter()
+                        .find(|(n, _)| n.eq_ignore_ascii_case(k))
+                        .map_or("", |(_, v)| v.as_str())
                 };
                 match name.to_ascii_lowercase().as_str() {
                     "script" | "style" | "head" | "title" => skip += 1,
@@ -667,7 +705,10 @@ pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<Output, String> {
                     out.push_str(&t);
                 } else {
                     let collapsed = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                    if t.starts_with(char::is_whitespace) && !out.ends_with([' ', '\n', '[']) && !out.is_empty() {
+                    if t.starts_with(char::is_whitespace)
+                        && !out.ends_with([' ', '\n', '['])
+                        && !out.is_empty()
+                    {
                         out.push(' ');
                     }
                     out.push_str(&collapsed);
@@ -686,7 +727,8 @@ pub fn html_to_markdown(text: &str, _: &mut Opts) -> Result<Output, String> {
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
-        .to_owned().into())
+        .to_owned()
+        .into())
 }
 
 /// Inline Markdown: code, images, links, bold, italics and strikethrough.
@@ -724,7 +766,10 @@ fn inline(s: &str) -> String {
                     let label = text(open + 1, mid);
                     let href = escape_attr(&text(mid + 2, end));
                     if image {
-                        out.push_str(&format!("<img src=\"{href}\" alt=\"{}\">", escape_attr(&label)));
+                        out.push_str(&format!(
+                            "<img src=\"{href}\" alt=\"{}\">",
+                            escape_attr(&label)
+                        ));
                     } else {
                         out.push_str(&format!("<a href=\"{href}\">{}</a>", inline(&label)));
                     }
@@ -763,7 +808,10 @@ fn inline(s: &str) -> String {
 fn list_item(line: &str) -> Option<(bool, usize, &str)> {
     let indent = line.len() - line.trim_start().len();
     let t = line.trim_start();
-    if let Some(rest) = t.strip_prefix(['-', '*', '+']).and_then(|r| r.strip_prefix(' ')) {
+    if let Some(rest) = t
+        .strip_prefix(['-', '*', '+'])
+        .and_then(|r| r.strip_prefix(' '))
+    {
         return Some((false, indent, rest));
     }
     let digits = t.find(|c: char| !c.is_ascii_digit())?;
@@ -810,16 +858,35 @@ fn markdown_html(text: &str) -> Result<String, String> {
                 code.push(escape_html(lines[i]));
                 i += 1;
             }
-            let class = if lang.is_empty() { String::new() } else { format!(" class=\"language-{}\"", escape_attr(lang)) };
-            out.push(format!("<pre><code{class}>{}</code></pre>", code.join("\n")));
+            let class = if lang.is_empty() {
+                String::new()
+            } else {
+                format!(" class=\"language-{}\"", escape_attr(lang))
+            };
+            out.push(format!(
+                "<pre><code{class}>{}</code></pre>",
+                code.join("\n")
+            ));
         } else if t.is_empty() {
             flush(&mut out, &mut para);
             close_lists(&mut out, &mut lists, 0);
-        } else if let Some(level) = t.find(|c| c != '#').filter(|&n| (1..=6).contains(&n) && t[n..].starts_with(' ')) {
+        } else if let Some(level) = t
+            .find(|c| c != '#')
+            .filter(|&n| (1..=6).contains(&n) && t[n..].starts_with(' '))
+        {
             flush(&mut out, &mut para);
             close_lists(&mut out, &mut lists, 0);
-            out.push(format!("<h{level}>{}</h{level}>", inline(t[level..].trim().trim_end_matches('#').trim())));
-        } else if t.len() >= 3 && (t.chars().all(|c| c == '-' || c == ' ') || t.chars().all(|c| c == '*' || c == ' ') || t.chars().all(|c| c == '_')) && t.chars().filter(|c| !c.is_whitespace()).count() >= 3 && list_item(line).is_none() {
+            out.push(format!(
+                "<h{level}>{}</h{level}>",
+                inline(t[level..].trim().trim_end_matches('#').trim())
+            ));
+        } else if t.len() >= 3
+            && (t.chars().all(|c| c == '-' || c == ' ')
+                || t.chars().all(|c| c == '*' || c == ' ')
+                || t.chars().all(|c| c == '_'))
+            && t.chars().filter(|c| !c.is_whitespace()).count() >= 3
+            && list_item(line).is_none()
+        {
             flush(&mut out, &mut para);
             close_lists(&mut out, &mut lists, 0);
             out.push("<hr>".into());
@@ -841,7 +908,10 @@ fn markdown_html(text: &str) -> Result<String, String> {
                     out.push(format!("<{}>", if ordered { "ol" } else { "ul" }));
                 }
                 Some(_) => {
-                    let keep = lists.iter().position(|&(_, n)| n >= indent).map_or(lists.len(), |p| p + 1);
+                    let keep = lists
+                        .iter()
+                        .position(|&(_, n)| n >= indent)
+                        .map_or(lists.len(), |p| p + 1);
                     close_lists(&mut out, &mut lists, keep);
                     out.push("</li>".into());
                 }
@@ -896,7 +966,8 @@ pub fn preserve_spaces(text: &str, _: &mut Opts) -> Result<Output, String> {
             out
         })
         .collect::<Vec<_>>()
-        .join("<br>\n").into())
+        .join("<br>\n")
+        .into())
 }
 
 /// Document text, as pasted from a word processor, as HTML: paragraphs,
@@ -910,20 +981,37 @@ pub fn word_to_html(text: &str, _: &mut Opts) -> Result<Output, String> {
     }
     fn number(l: &str) -> Option<&str> {
         let d = l.find(|c: char| !c.is_ascii_digit())?;
-        (d > 0).then(|| l[d..].strip_prefix(['.', ')']))?.map(str::trim_start)
+        (d > 0)
+            .then(|| l[d..].strip_prefix(['.', ')']))?
+            .map(str::trim_start)
     }
-    let paragraphs: Vec<&str> = text.split("\n\n").map(str::trim).filter(|p| !p.is_empty()).collect();
+    let paragraphs: Vec<&str> = text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
     for p in paragraphs {
         let lines: Vec<&str> = p.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
         if lines.iter().all(|l| bullet(l).is_some()) {
             out.push("<ul>".to_owned());
-            out.extend(lines.iter().map(|l| format!("  <li>{}</li>", escape_html(bullet(l).unwrap()))));
+            out.extend(
+                lines
+                    .iter()
+                    .map(|l| format!("  <li>{}</li>", escape_html(bullet(l).unwrap()))),
+            );
             out.push("</ul>".to_owned());
         } else if lines.iter().all(|l| number(l).is_some()) {
             out.push("<ol>".to_owned());
-            out.extend(lines.iter().map(|l| format!("  <li>{}</li>", escape_html(number(l).unwrap()))));
+            out.extend(
+                lines
+                    .iter()
+                    .map(|l| format!("  <li>{}</li>", escape_html(number(l).unwrap()))),
+            );
             out.push("</ol>".to_owned());
-        } else if lines.len() == 1 && lines[0].chars().count() < 70 && !lines[0].ends_with(['.', ',', ';', ':', '!', '?']) {
+        } else if lines.len() == 1
+            && lines[0].chars().count() < 70
+            && !lines[0].ends_with(['.', ',', ';', ':', '!', '?'])
+        {
             out.push(format!("<h2>{}</h2>", escape_html(lines[0])));
         } else {
             let body: Vec<String> = lines.iter().map(|l| escape_html(l)).collect();
@@ -951,13 +1039,20 @@ mod tests {
             run(xml, "<a x='1'><b>hi</b><c/></a>", "beautify"),
             "<a x=\"1\">\n  <b>hi</b>\n  <c/>\n</a>"
         );
-        assert_eq!(run(xml, "<a>\n  <b> hi </b>\n</a>", "minify"), "<a><b>hi</b></a>");
+        assert_eq!(
+            run(xml, "<a>\n  <b> hi </b>\n</a>", "minify"),
+            "<a><b>hi</b></a>"
+        );
     }
 
     #[test]
     fn formats_html() {
         assert_eq!(
-            run(html, "<div><p>Hello <b>you</b></p><br><ul><li>x</li></ul></div>", "beautify"),
+            run(
+                html,
+                "<div><p>Hello <b>you</b></p><br><ul><li>x</li></ul></div>",
+                "beautify"
+            ),
             "<div>\n  <p>Hello <b>you</b></p>\n  <br>\n  <ul>\n    <li>x</li>\n  </ul>\n</div>"
         );
     }
@@ -980,19 +1075,36 @@ mod tests {
     #[test]
     fn markdown() {
         assert_eq!(
-            run(markdown_to_html, "# Hi\n\nSome *em* and **bold**, `x<y`.\n\n- one\n- [two](http://t)\n", ""),
+            run(
+                markdown_to_html,
+                "# Hi\n\nSome *em* and **bold**, `x<y`.\n\n- one\n- [two](http://t)\n",
+                ""
+            ),
             "<h1>Hi</h1>\n<p>Some <em>em</em> and <strong>bold</strong>, <code>x&lt;y</code>.</p>\n<ul>\n<li>one</li>\n<li><a href=\"http://t\">two</a></li></ul>"
         );
         assert_eq!(
-            run(html_to_markdown, "<h2>Hi</h2><p>Some <em>em</em> and <a href=\"/x\">a link</a>.</p><ol><li>one</li><li>two</li></ol>", ""),
+            run(
+                html_to_markdown,
+                "<h2>Hi</h2><p>Some <em>em</em> and <a href=\"/x\">a link</a>.</p><ol><li>one</li><li>two</li></ol>",
+                ""
+            ),
             "## Hi\n\nSome *em* and [a link](/x).\n\n1. one\n2. two"
         );
     }
 
     #[test]
     fn escapes() {
-        assert_eq!(run(html_escape, "<a href=\"x\">&</a>", "escape"), "&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;");
-        assert_eq!(run(html_escape, "&lt;&#65;&#x42;&copy;&bogus;", "unescape"), "<AB©&bogus;");
-        assert_eq!(run(preserve_spaces, "a  b\n c", ""), "a &nbsp;b<br>\n&nbsp;c");
+        assert_eq!(
+            run(html_escape, "<a href=\"x\">&</a>", "escape"),
+            "&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;"
+        );
+        assert_eq!(
+            run(html_escape, "&lt;&#65;&#x42;&copy;&bogus;", "unescape"),
+            "<AB©&bogus;"
+        );
+        assert_eq!(
+            run(preserve_spaces, "a  b\n c", ""),
+            "a &nbsp;b<br>\n&nbsp;c"
+        );
     }
 }
