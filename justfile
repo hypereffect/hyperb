@@ -31,6 +31,10 @@ desktop-install:
 tui *args:
     cargo run -p hyperb-tui -- {{args}}
 
+# Run hypb, the command-line tool that inspects and scripts apps, e.g. `just cli state wasm-apps/qr.wasm`
+cli *args:
+    cargo run -q -p hyperb-cli -- {{args}}
+
 # The apps come from the demoapps features (every feature except `default`).
 wasm_apps := `cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "hyperb-demoapps") | (.features | keys - ["default"] | join(" "))'`
 
@@ -98,7 +102,7 @@ clean:
 tag target kind="patch":
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{target}}" in android|core|desktop|tui|web) ;; *) echo "unknown target '{{target}}'" >&2; exit 1 ;; esac
+    case "{{target}}" in android|core|desktop|tui|web|cli) ;; *) echo "unknown target '{{target}}'" >&2; exit 1 ;; esac
     case "{{kind}}" in patch|major) ;; *) echo "kind must be patch or major" >&2; exit 1 ;; esac
     last=$(git tag -l "{{target}}-*-*" | sed -nE 's/^{{target}}-([0-9]+)-([0-9]+)$/\1 \2/p' | sort -k1,1n -k2,2n | tail -n1)
     if [ -z "$last" ]; then

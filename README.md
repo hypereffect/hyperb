@@ -136,6 +136,7 @@ Nothing to install: open <https://hypereffect.github.io/hyperb/>.
 ```
 just desktop        # the GTK4 app
 just tui            # the terminal app
+just cli --help     # hypb: print an app's messages or state, fire actions, run JS scripts against it
 just demo pomodoro  # the desktop app on a demo app
 just demo-serve     # the demo apps over HTTP on 127.0.0.1:9001, for the web app
 just web            # the web app with hot reload on http://127.0.0.1:3000
