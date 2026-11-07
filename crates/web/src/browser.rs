@@ -392,6 +392,52 @@ fn register_links() -> Result<(), String> {
         })
 }
 
+/// A build of hyperb the page can point people to. The desktop and Android
+/// apps handle `hyperb://` links themselves and keep their apps offline, so
+/// the web page suggests them where they exist.
+#[derive(Clone, Copy)]
+enum Build {
+    Desktop,
+    Android,
+}
+
+impl Build {
+    /// The build for the browser the page runs in, if there is one. iOS has
+    /// no build, and an iPad in desktop mode calls itself a Macintosh, so
+    /// touch is what tells the two apart.
+    fn detect() -> Option<Build> {
+        let nav = window().navigator();
+        let ua = nav.user_agent().unwrap_or_default();
+        build_for(&ua, nav.max_touch_points() > 0)
+    }
+
+    fn install(self) -> (&'static str, &'static str) {
+        (
+            match self {
+                Build::Desktop => "Install the desktop app",
+                Build::Android => "Install the Android app",
+            },
+            "https://github.com/hypereffect/hyperb#installation",
+        )
+    }
+}
+
+fn build_for(user_agent: &str, touch: bool) -> Option<Build> {
+    let ua = user_agent.to_ascii_lowercase();
+    if ua.contains("android") {
+        return Some(Build::Android);
+    }
+    if ["iphone", "ipad", "ipod"].iter().any(|os| ua.contains(os)) {
+        return None;
+    }
+    let desktop = ["windows", "macintosh", "mac os x", "linux", "freebsd"]
+        .iter()
+        .any(|os| ua.contains(os));
+    // A touchscreen Mac is an iPad: iPadOS reports the desktop user agent.
+    let ipad = touch && ua.contains("macintosh");
+    (desktop && !ipad).then_some(Build::Desktop)
+}
+
 /// The identity kept in `localStorage`, created on first use. Without
 /// storage (a private window, say) a temporary one is used.
 fn load_identity() -> Identity {
@@ -682,6 +728,7 @@ pub fn Browser() -> impl IntoView {
 fn Welcome(ctx: Ctx, open: Callback<String>, settings: RwSignal<bool>) -> impl IntoView {
     let registered = RwSignal::new(None::<Result<(), String>>);
     let input = RwSignal::new(String::new());
+    let install = Build::detect().map(Build::install);
     view! {
         <div class="hb-welcome">
             <h1 class="he-h1">"hyperb"</h1>
@@ -711,6 +758,15 @@ fn Welcome(ctx: Ctx, open: Callback<String>, settings: RwSignal<bool>) -> impl I
                 <button type="submit" class="hb-open-button">"Open"</button>
             </form>
             <LibraryView ctx limit=12 open/>
+            {install.map(|(text, href)| {
+                view! {
+                    <p class="he-caption">
+                        "Prefer a native app? "
+                        <a class="hb-link" href=href>{text}</a>
+                        "."
+                    </p>
+                }
+            })}
             <p class="he-caption">
                 <button class="hb-link" on:click=move |_| settings.set(true)>"Settings"</button>
                 " · "
