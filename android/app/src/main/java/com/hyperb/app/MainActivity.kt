@@ -111,6 +111,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 /**
  * A window: the launcher opens the browser on the welcome page, and every app opened on its own
@@ -200,13 +201,20 @@ open class MainActivity : ComponentActivity() {
         browser.home()
     }
 
-    /** Asks the home screen to pin a shortcut that opens the app on its own. */
+    /**
+     * Asks the home screen to pin a shortcut that opens the app on its own, and keeps a wasm app's
+     * module so it opens from it. If the user declines, [syncShortcuts] forgets it again.
+     */
     private fun addToHomeScreen(snap: Snapshot) {
         if (!ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
             Toast.makeText(this, "The home screen does not take shortcuts", Toast.LENGTH_SHORT).show()
             return
         }
-        shortcut(snap) { ShortcutManagerCompat.requestPinShortcut(this, it, null) }
+        shortcut(snap) {
+            if (ShortcutManagerCompat.requestPinShortcut(this, it, null)) {
+                bridge { RustBridge.setShortcut(snap.address, true) }
+            }
+        }
     }
 
     /** Whether the app is among the shortcuts shown by touching and holding hyperb's icon. */
@@ -220,12 +228,33 @@ open class MainActivity : ComponentActivity() {
     private fun toggleAppShortcut(snap: Snapshot) {
         if (hasAppShortcut(snap)) {
             ShortcutManagerCompat.removeDynamicShortcuts(this, listOf(shortcutId(snap.address)))
+            syncShortcuts()
             return
         }
         shortcut(snap, rank = 0) {
             ShortcutManagerCompat.pushDynamicShortcut(this, it)
+            syncShortcuts()
             Toast.makeText(this, "Touch and hold hyperb's icon to open ${snap.title}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * Tells the library which apps have a shortcut, on the home screen or among hyperb's, so their
+     * wasm modules are kept and the ones of removed shortcuts deleted.
+     */
+    private fun syncShortcuts() {
+        val flags = ShortcutManagerCompat.FLAG_MATCH_PINNED or ShortcutManagerCompat.FLAG_MATCH_DYNAMIC
+        val addresses = ShortcutManagerCompat.getShortcuts(this, flags)
+            .map { it.id }
+            .filter { it.startsWith(SHORTCUT_PREFIX) }
+            .map { it.removePrefix(SHORTCUT_PREFIX) }
+        bridge { RustBridge.setShortcuts(JSONArray(addresses).toString()) }
+    }
+
+    private fun bridge(call: () -> Unit) = try {
+        call()
+    } catch (e: Throwable) {
+        Log.e("hyperb", "shortcuts", e)
     }
 
     /**
@@ -249,7 +278,7 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun shortcutId(address: String) = "app:$address"
+    private fun shortcutId(address: String) = SHORTCUT_PREFIX + address
 
     /** Opens [address] on its own, in the window it has if there is one. */
     private fun appIntent(address: String) =
@@ -272,9 +301,10 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Other windows may have changed the history and favorites. */
+    /** Other windows may have changed the history and favorites, and the home screen the shortcuts. */
     override fun onResume() {
         super.onResume()
+        if (browser.publicKey != null) syncShortcuts()
         browser.loadLibrary()
     }
 
@@ -290,6 +320,7 @@ open class MainActivity : ComponentActivity() {
 
     private companion object {
         const val ADDRESS = "address"
+        const val SHORTCUT_PREFIX = "app:"
     }
 }
 
@@ -328,6 +359,9 @@ class Browser : Host {
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** The app runs from a kept module and a newer one is available ([applyUpdate]). */
+    var update by mutableStateOf(false)
+        private set
     var session: Session? = null
         private set
     /** Opens a URL a button asked for, outside the app. */
@@ -348,8 +382,23 @@ class Browser : Host {
         session?.cancel()
         session = s
         error = null
+        update = false
         snapshot = s.snapshot()
         snapshot?.let { address = it.address }
+        // A wasm app kept for a favorite or a shortcut runs from its module; meanwhile, look for a
+        // newer one. Reloads skip it: it was looked for when the app opened.
+        val url = snapshot?.url
+        if (!reload && url != null) {
+            thread(name = "hyperb-update") {
+                val newer = try {
+                    RustBridge.checkUpdate(url)
+                } catch (e: Throwable) {
+                    Log.e("hyperb", "update", e)
+                    false
+                }
+                if (newer) main.post { if (session === s) update = true }
+            }
+        }
         thread(name = "hyperb-session") {
             s.run { snap ->
                 main.post {
@@ -367,6 +416,17 @@ class Browser : Host {
 
     fun reload() = navigate(snapshot?.url ?: address, reload = snapshot != null)
 
+    /** Takes the newer module of the app and reloads it. */
+    fun applyUpdate() {
+        val url = snapshot?.url ?: return
+        try {
+            RustBridge.applyUpdate(url)
+        } catch (e: Throwable) {
+            Log.e("hyperb", "update", e)
+        }
+        reload()
+    }
+
     /** Ends the session and goes back to the welcome page, with the history and favorites. */
     fun home() {
         session?.cancel()
@@ -374,6 +434,7 @@ class Browser : Host {
         snapshot = null
         address = ""
         error = null
+        update = false
     }
 
     fun loadLibrary() {
@@ -426,9 +487,12 @@ fun BrowserScreen(
             if (!standalone) Toolbar(b, onScan, onOwn, onPin, shortcut)
             val snap = b.snapshot
             if (snap?.state == "connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
-            b.error?.let { Banner(it, null) }
+            b.error?.let { Banner(it) }
             if (snap?.state == "closed") {
-                Banner(snap.reason?.let { "Disconnected: $it" } ?: "Disconnected. The server closed the connection.", b::reload)
+                Banner(snap.reason?.let { "Disconnected: $it" } ?: "Disconnected. The server closed the connection.", "Reconnect", b::reload)
+            }
+            if (snap != null && b.update) {
+                Banner("A newer version of this app is available.", "Update", b::applyUpdate, error = false)
             }
             when {
                 snap != null -> Page(snap.tree, b, Modifier.fillMaxSize())
@@ -612,18 +676,26 @@ private fun Swatches() {
     }
 }
 
+/** A line above the page, an error unless not [error], with a button [action] if given. */
 @Composable
-private fun Banner(text: String, onReconnect: (() -> Unit)?) {
+private fun Banner(text: String, action: String? = null, onAction: (() -> Unit)? = null, error: Boolean = true) {
     val look = LocalLook.current
     val c = MaterialTheme.colorScheme
+    val (container, accent, onContainer) = if (error) {
+        Triple(c.errorContainer, c.error, c.onErrorContainer)
+    } else {
+        Triple(c.secondaryContainer, c.secondary, c.onSecondaryContainer)
+    }
     Surface(
-        color = if (look.outlined) c.surface else c.errorContainer,
-        border = look.border()?.let { BorderStroke(it.width, c.error) },
+        color = if (look.outlined) c.surface else container,
+        border = look.border()?.let { BorderStroke(it.width, accent) },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, Modifier.weight(1f), color = if (look.outlined) c.error else c.onErrorContainer)
-            onReconnect?.let { TextButton(onClick = it, shape = look.buttonShape) { Text("Reconnect") } }
+            Text(text, Modifier.weight(1f), color = if (look.outlined) accent else onContainer)
+            if (action != null && onAction != null) {
+                TextButton(onClick = onAction, shape = look.buttonShape) { Text(action) }
+            }
         }
     }
 }

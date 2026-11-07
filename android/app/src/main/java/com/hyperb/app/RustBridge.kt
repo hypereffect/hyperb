@@ -44,4 +44,16 @@ object RustBridge {
 
     /** Removes [address] from the history, or clears it if null; returns the library. */
     @JvmStatic external fun forget(address: String?): String
+
+    /** Records that [address] has a shortcut, or no longer has one (a wasm app is then kept for offline use). */
+    @JvmStatic external fun setShortcut(address: String, on: Boolean)
+
+    /** Makes the apps in [addresses] (a JSON array) the ones with a shortcut, as the system lists them. */
+    @JvmStatic external fun setShortcuts(addresses: String)
+
+    /** Whether [address] runs from a kept module and a newer one is available; blocks. */
+    @JvmStatic external fun checkUpdate(address: String): Boolean
+
+    /** Makes the newer module [checkUpdate] found the one [address] runs from. */
+    @JvmStatic external fun applyUpdate(address: String)
 }

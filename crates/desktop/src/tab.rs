@@ -8,6 +8,10 @@
 //! batch of frames. When the transport closes the last state stays on screen
 //! with controls disabled, and a banner offers to reconnect.
 //!
+//! A wasm app whose module the library keeps (a favorite, or one with a
+//! desktop shortcut) runs from it, and meanwhile the tab looks for a newer
+//! one at its address; if there is, a banner offers to update and reload.
+//!
 //! Every address the user opens goes to the history (except the demo apps);
 //! the toolbar's star adds it to the favorites, and the popover next to it
 //! (and the page of a new tab) lists both, or the demo apps while the history
@@ -55,6 +59,8 @@ pub struct Tab {
     star: gtk::ToggleButton,
     banner: gtk::Box,
     banner_text: gtk::Label,
+    /// Offers the newer module of a kept wasm app.
+    update_banner: gtk::Box,
     content: gtk::Stack,
     debug: Debugger,
     session: RefCell<Session>,
@@ -157,7 +163,7 @@ impl Tab {
                     if let Some(t) = remove_weak.upgrade()
                         && let Some(w) = t.page.root().and_downcast::<gtk::Window>()
                     {
-                        shortcut::remove(&w, &t);
+                        shortcut::remove(&w, &t.library, &t);
                     }
                 });
                 let actions = gio::SimpleActionGroup::new();
@@ -244,6 +250,29 @@ impl Tab {
             banner.append(&banner_reload);
             banner.set_visible(false);
 
+            // Update banner.
+            let update_text = gtk::Label::new(Some("A newer version of this app is available."));
+            update_text.set_hexpand(true);
+            update_text.set_xalign(0.0);
+            update_text.set_wrap(true);
+            let update_button = gtk::Button::with_label("Update");
+            let update_banner = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            update_banner.add_css_class("hb-banner");
+            update_banner.append(&gtk::Image::from_icon_name(
+                "software-update-available-symbolic",
+            ));
+            update_banner.append(&update_text);
+            update_banner.append(&update_button);
+            update_banner.set_visible(false);
+            {
+                let w = weak.clone();
+                update_button.connect_clicked(move |_| {
+                    if let Some(t) = w.upgrade() {
+                        t.update();
+                    }
+                });
+            }
+
             // Rendered session: the root column scrolls, dialogs overlay it.
             let main = gtk::Box::new(gtk::Orientation::Vertical, 12);
             main.add_css_class("he-root");
@@ -266,6 +295,7 @@ impl Tab {
             let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
             page.append(&toolbar);
             page.append(&banner);
+            page.append(&update_banner);
             let debug = Debugger::new(weak.clone());
             let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             body.append(&content);
@@ -349,6 +379,7 @@ impl Tab {
                 star,
                 banner,
                 banner_text,
+                update_banner,
                 content,
                 debug,
                 session: RefCell::new(Session {
@@ -539,6 +570,7 @@ impl Tab {
         self.render();
         self.update_chrome();
         self.update_star();
+        self.check_update(generation);
 
         let weak = Rc::downgrade(self);
         glib::spawn_future_local(async move {
@@ -556,6 +588,37 @@ impl Tab {
                 t.update_chrome();
             }
         });
+    }
+
+    /// Shows the update banner if the app runs from a kept module and there
+    /// is a newer one, unless the tab connected again since.
+    fn check_update(self: &Rc<Self>, generation: u64) {
+        self.update_banner.set_visible(false);
+        let Some(url) = self.session.borrow().url.clone() else {
+            return;
+        };
+        if !self.library.with(|l| l.keeps_module(&url)) {
+            return;
+        }
+        let check = self.library.check_update(&url);
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            if check.await
+                && let Some(t) = weak.upgrade()
+                && t.session.borrow().generation == generation
+            {
+                t.update_banner.set_visible(true);
+            }
+        });
+    }
+
+    /// Takes the newer module of the app and reloads it.
+    fn update(self: &Rc<Self>) {
+        let url = self.session.borrow().url.clone();
+        if let Some(url) = url {
+            self.library.apply_update(&url);
+            self.reload();
+        }
     }
 
     fn handle(&self, ev: Event) {

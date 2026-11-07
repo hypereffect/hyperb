@@ -1,6 +1,8 @@
 //! What renderers remember between runs: the history of the apps the user
-//! opened, their favorites, and the modules of favorite remote wasm apps, kept
-//! so that they open without downloading them again (or without a network).
+//! opened, their favorites, the apps they made shortcuts to, and the modules
+//! of the remote wasm apps among those, kept so that they open without
+//! downloading them again (or without a network). A kept module is updated
+//! only when the user agrees to it ([`Store::check_update`]).
 //!
 //! [`Library`] is the data, as JSON. Where it is kept is up to the platform:
 //! on native hosts [`Store`] keeps it in `<data dir>/library.json`, the
@@ -198,6 +200,10 @@ pub struct Library {
     /// reopen them on startup unless they are started with an address.
     #[serde(default, deserialize_with = "session")]
     pub session: Vec<Entry>,
+    /// The `hyperb://` addresses of the apps with a shortcut on the desktop
+    /// or the home screen, which renderers keep up to date.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shortcuts: Vec<String>,
 }
 
 /// The session, also as it was kept before tabs had titles: a list of
@@ -323,18 +329,23 @@ impl Library {
         }
     }
 
+    pub fn has_shortcut(&self, url: &Url) -> bool {
+        self.shortcuts.contains(&address::hyperb(url))
+    }
+
+    /// Records that `url` has a shortcut, or no longer has one.
+    pub fn set_shortcut(&mut self, url: &Url, on: bool) {
+        let address = address::hyperb(url);
+        self.shortcuts.retain(|a| *a != address);
+        if on {
+            self.shortcuts.push(address);
+        }
+    }
+
     /// Whether the module of `url` should be kept: it is a remote wasm app
-    /// and a favorite runs it (with any parameters).
+    /// and a favorite or a shortcut runs it (with any parameters).
     pub fn keeps_module(&self, url: &Url) -> bool {
-        let Some(file) = module_file(url) else {
-            return false;
-        };
-        self.favorites.iter().any(|e| {
-            address::normalize(&e.address)
-                .ok()
-                .and_then(|u| module_file(&u))
-                .is_some_and(|f| f == file)
-        })
+        module_file(url).is_some_and(|f| self.kept_modules().contains(&f))
     }
 
     /// The file names ([`module_file`]) of every module the library keeps.
@@ -342,7 +353,9 @@ impl Library {
         let mut files: Vec<String> = self
             .favorites
             .iter()
-            .filter_map(|e| module_file(&address::normalize(&e.address).ok()?))
+            .map(|e| &e.address)
+            .chain(&self.shortcuts)
+            .filter_map(|a| module_file(&address::normalize(a).ok()?))
             .collect();
         files.sort();
         files.dedup();
@@ -383,6 +396,9 @@ mod store {
     const LIBRARY: &str = "library.json";
     const MODULES: &str = "wasm";
     const ICONS: &str = "icons";
+    /// The extension a newer module waits under, next to the kept one,
+    /// until the user takes it ([`Store::apply_update`]).
+    const UPDATE: &str = "update";
 
     /// A [`Library`] kept in a directory, with the modules it keeps and the
     /// icons of its entries.
@@ -468,10 +484,31 @@ mod store {
         }
 
         /// Adds `url` to the favorites or removes it. Removing the last
-        /// favorite that runs a module deletes the module; adding one does
-        /// not download it (see [`Store::download`]).
+        /// favorite or shortcut that runs a module deletes the module;
+        /// adding one does not download it (see [`Store::download`]).
         pub fn set_favorite(&mut self, url: &Url, on: bool) -> io::Result<()> {
             self.update(|l, now| l.set_favorite(url, on, now))?;
+            self.prune()
+        }
+
+        /// Records that `url` has a shortcut or no longer has one, which
+        /// keeps its module or deletes it like [`Store::set_favorite`].
+        pub fn set_shortcut(&mut self, url: &Url, on: bool) -> io::Result<()> {
+            self.update(|l, _| l.set_shortcut(url, on))?;
+            self.prune()
+        }
+
+        /// Makes `addresses` the apps with a shortcut, for platforms that
+        /// can list them, so the modules of removed shortcuts are deleted.
+        pub fn set_shortcuts(&mut self, addresses: &[String]) -> io::Result<()> {
+            self.update(|l, _| {
+                l.shortcuts = addresses
+                    .iter()
+                    .filter_map(|a| crate::address::normalize(a).ok())
+                    .map(|u| crate::address::hyperb(&u))
+                    .collect();
+                l.shortcuts.dedup();
+            })?;
             self.prune()
         }
 
@@ -484,6 +521,21 @@ mod store {
             std::fs::read(self.dir.join(MODULES).join(module_file(url)?)).ok()
         }
 
+        /// Replaces the kept module of `url` with the newer one that
+        /// [`Store::check_update`] found, and returns whether there was one.
+        /// Sessions opened from then on run it.
+        pub fn apply_update(&self, url: &Url) -> io::Result<bool> {
+            let Some(file) = module_file(url).filter(|_| self.library.keeps_module(url)) else {
+                return Ok(false);
+            };
+            let kept = self.dir.join(MODULES).join(file);
+            match std::fs::rename(kept.with_extension(UPDATE), kept) {
+                Ok(()) => Ok(true),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err(e),
+            }
+        }
+
         /// The downloaded icon at `src`, if [`Store::fetch_icon`] kept it.
         pub fn icon(&self, src: &str) -> Option<Vec<u8>> {
             std::fs::read(self.dir.join(ICONS).join(icon_file(src)?)).ok()
@@ -492,7 +544,10 @@ mod store {
         /// Deletes the modules the library no longer keeps, and the icons
         /// no entry uses.
         pub fn prune(&self) -> io::Result<()> {
-            prune_dir(&self.dir.join(MODULES), &self.library.kept_modules())?;
+            let modules = self.library.kept_modules();
+            let updates = modules.iter().map(|m| update_file(m));
+            let keep: Vec<String> = updates.chain(modules.iter().cloned()).collect();
+            prune_dir(&self.dir.join(MODULES), &keep)?;
             prune_dir(&self.dir.join(ICONS), &kept_icons(&self.library))
         }
     }
@@ -501,8 +556,9 @@ mod store {
     impl Store {
         /// Opens a session at `url`, like [`crate::net::Connection::open`].
         /// A remote wasm app that the library keeps runs from its kept
-        /// module when there is one, and the module is downloaded again in
-        /// the background, so the next session gets any update.
+        /// module when there is one (see [`Store::check_update`] for
+        /// newer ones), and otherwise from the network while the module is
+        /// downloaded in the background for the next session.
         pub fn connect(
             &self,
             url: &Url,
@@ -513,32 +569,70 @@ mod store {
                 return Connection::open(url, identity);
             }
             #[cfg(feature = "wasm")]
-            let conn = match self.module(url) {
-                Some(m) => Connection::open_module(url, m),
-                None => Connection::open(url, identity),
-            };
-            #[cfg(not(feature = "wasm"))]
-            let conn = Connection::open(url, identity);
+            if let Some(m) = self.module(url) {
+                return Connection::open_module(url, m);
+            }
             self.download(url);
-            conn
+            Connection::open(url, identity)
         }
 
-        /// Downloads the module of `url` in the background, and keeps it if
-        /// the library (as it is on disk by then) still keeps it. Failures
-        /// are ignored: the app runs from the network until it succeeds.
+        /// Downloads the module of `url` in the background, like
+        /// [`Store::keep`]. Failures are ignored: the app runs from the
+        /// network until it succeeds.
         pub fn download(&self, url: &Url) {
-            let (dir, url) = (self.dir.clone(), url.clone());
+            let keep = self.keep(url);
             crate::net::spawn(async move {
-                let Ok(bytes) = crate::net::fetch_module(&url).await else {
-                    return;
-                };
-                let Some(file) = module_file(&url) else {
-                    return;
-                };
-                if load(&dir).keeps_module(&url) {
-                    let _ = write_atomic(&dir.join(MODULES).join(file), &bytes);
-                }
+                let _ = keep.await;
             });
+        }
+
+        /// Downloads the module of `url`, and keeps it if the library (as it
+        /// is on disk by then) still keeps it. Any executor may await it.
+        pub fn keep(
+            &self,
+            url: &Url,
+        ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'static + use<>
+        {
+            let (dir, url) = (self.dir.clone(), url.clone());
+            async move {
+                let file = module_file(&url).ok_or("not a remote wasm app")?;
+                let bytes = crate::net::fetch_module(&url).await?;
+                if load(&dir).keeps_module(&url) {
+                    write_atomic(&dir.join(MODULES).join(file), &bytes)
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            }
+        }
+
+        /// Whether there is a newer module of `url` than the kept one, for
+        /// the renderer to offer: one found before and not taken yet, or
+        /// else the one at `url` if it differs from the kept one, which is
+        /// then put next to it until [`Store::apply_update`]. False for apps
+        /// whose module is not kept, and when `url` cannot be reached. Any
+        /// executor may await it.
+        pub fn check_update(
+            &self,
+            url: &Url,
+        ) -> impl std::future::Future<Output = bool> + Send + 'static + use<> {
+            let (dir, url) = (self.dir.clone(), url.clone());
+            async move {
+                let Some(file) = module_file(&url) else {
+                    return false;
+                };
+                let kept = dir.join(MODULES).join(&file);
+                let update = kept.with_extension(UPDATE);
+                if update.is_file() {
+                    return true;
+                }
+                let Ok(old) = std::fs::read(&kept) else {
+                    return false;
+                };
+                let Ok(new) = crate::net::fetch_module(&url).await else {
+                    return false;
+                };
+                new != old && load(&dir).keeps_module(&url) && write_atomic(&update, &new).is_ok()
+            }
         }
 
         /// Downloads the `https` icon at `src`, and keeps it if an entry
@@ -559,6 +653,14 @@ mod store {
                 Some(bytes)
             }
         }
+    }
+
+    /// The name a newer module than the kept `module` waits under.
+    fn update_file(module: &str) -> String {
+        Path::new(module)
+            .with_extension(UPDATE)
+            .to_string_lossy()
+            .into_owned()
     }
 
     /// The file names ([`icon_file`]) of the icons the entries use.
@@ -771,6 +873,16 @@ mod tests {
             module_file(&url("hyperb://example.com/app.wasm"))
         );
         assert_eq!(module_file(&url("/opt/local.wasm")), None);
+        // A shortcut keeps its module too, until it is removed.
+        let other = url("example.com/other.wasm");
+        l.set_shortcut(&other, true);
+        l.set_shortcut(&other, true);
+        assert!(l.has_shortcut(&url("hyperb://example.com/other.wasm")));
+        assert_eq!(l.shortcuts.len(), 1);
+        assert!(l.keeps_module(&other));
+        assert_eq!(l.kept_modules().len(), 2);
+        l.set_shortcut(&other, false);
+        assert!(!l.keeps_module(&other));
     }
 
     #[test]
@@ -809,7 +921,20 @@ mod tests {
         b.prune().unwrap();
         assert!(file.exists());
         assert!(!dir.join("wasm").join("stale.wasm").exists());
+        // A newer module waits next to the kept one until it is taken.
+        let update = file.with_extension("update");
+        std::fs::write(&update, b"\0asm2").unwrap();
+        b.prune().unwrap();
+        assert!(update.exists());
+        assert!(b.apply_update(&app).unwrap());
+        assert!(!update.exists());
+        assert_eq!(b.module(&app).as_deref(), Some(&b"\0asm2"[..]));
+        assert!(!b.apply_update(&app).unwrap());
+        // A shortcut keeps the module while the favorite is gone.
+        a.set_shortcut(&app, true).unwrap();
         a.set_favorite(&app, false).unwrap();
+        assert!(file.exists());
+        a.set_shortcuts(&[]).unwrap();
         assert!(!file.exists());
         assert_eq!(a.module(&app), None);
         // An icon stays while an entry uses it.

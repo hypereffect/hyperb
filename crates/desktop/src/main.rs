@@ -431,7 +431,7 @@ impl Browser {
             let tw = Rc::downgrade(t);
             remove.connect_activate(move |_, _| {
                 if let (Some(b), Some(t)) = (b.upgrade(), tw.upgrade()) {
-                    shortcut::remove(b.window.upcast_ref(), &t);
+                    shortcut::remove(b.window.upcast_ref(), &b.library, &t);
                 }
             });
         }

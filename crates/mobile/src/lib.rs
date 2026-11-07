@@ -17,6 +17,10 @@
 //! and `icon`; `icon` downloads `https` icons, which are kept with the store.
 //! An app may also move its session to another address on its host, which
 //! the snapshot's `url` and `address` follow.
+//!
+//! The store also records the apps with a shortcut (`setShortcut`,
+//! `setShortcuts`), so the module of a remote wasm app with one is kept and
+//! the app opens from it; `checkUpdate` and `applyUpdate` offer a newer one.
 
 use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
@@ -483,6 +487,115 @@ pub extern "system" fn Java_com_hyperb_app_RustBridge_forget(
             log::warn!("cannot save the history: {e}");
         }
         Ok(env.new_string(store.library().to_json())?.into_raw())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `setShortcut(address: String, on: Boolean)`: records that the app has a
+/// shortcut on the home screen or among hyperb's, or no longer has one. The
+/// module of a wasm app with a shortcut is kept, and downloaded now in the
+/// background; one no longer kept is deleted.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hyperb_app_RustBridge_setShortcut(
+    mut env: EnvUnowned<'_>,
+    _class: JClass,
+    input: JString,
+    on: jboolean,
+) {
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let input = input.try_to_string(env)?;
+        let mut store = store();
+        if let Ok(url) = address::normalize(&input) {
+            match store.set_shortcut(&url, on) {
+                Ok(())
+                    if on && store.library().keeps_module(&url) && store.module(&url).is_none() =>
+                {
+                    store.download(&url)
+                }
+                Ok(()) => {}
+                Err(e) => log::warn!("cannot save the shortcuts: {e}"),
+            }
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `setShortcuts(addresses: String)`: makes the apps in the JSON array of
+/// addresses the ones with a shortcut, as the system lists them, deleting the
+/// modules of the others and downloading in the background the ones missing.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hyperb_app_RustBridge_setShortcuts(
+    mut env: EnvUnowned<'_>,
+    _class: JClass,
+    addresses: JString,
+) {
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let addresses = addresses.try_to_string(env)?;
+        let addresses: Vec<String> = serde_json::from_str(&addresses).unwrap_or_default();
+        let mut store = store();
+        if let Err(e) = store.set_shortcuts(&addresses) {
+            log::warn!("cannot save the shortcuts: {e}");
+        }
+        for a in &addresses {
+            if let Ok(url) = address::normalize(a)
+                && store.library().keeps_module(&url)
+                && store.module(&url).is_none()
+            {
+                store.download(&url);
+            }
+        }
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `checkUpdate(address: String): Boolean`: whether the app runs from a kept
+/// module and there is a newer one at its address, which `applyUpdate` then
+/// takes. Blocks while downloading, so call it off the main thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hyperb_app_RustBridge_checkUpdate(
+    mut env: EnvUnowned<'_>,
+    _class: JClass,
+    input: JString,
+) -> jboolean {
+    env.with_env(|env| -> jni::errors::Result<jboolean> {
+        let input = input.try_to_string(env)?;
+        let Ok(url) = address::normalize(&input) else {
+            return Ok(false);
+        };
+        // The store is unlocked while downloading.
+        let check = {
+            let mut store = store();
+            store.reload();
+            if store.module(&url).is_none() {
+                return Ok(false);
+            }
+            store.check_update(&url)
+        };
+        Ok(futures_executor::block_on(check))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `applyUpdate(address: String)`: makes the newer module `checkUpdate`
+/// found the kept one; sessions opened from then on run it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_hyperb_app_RustBridge_applyUpdate(
+    mut env: EnvUnowned<'_>,
+    _class: JClass,
+    input: JString,
+) {
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let input = input.try_to_string(env)?;
+        if let Ok(url) = address::normalize(&input) {
+            let mut store = store();
+            store.reload();
+            if let Err(e) = store.apply_update(&url) {
+                log::warn!("cannot update the app: {e}");
+            }
+        }
+        Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }

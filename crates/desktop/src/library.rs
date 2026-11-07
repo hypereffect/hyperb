@@ -132,6 +132,31 @@ impl Library {
         });
     }
 
+    /// Records that `url` has a desktop shortcut, or no longer has one. The
+    /// module of a wasm app with a shortcut is kept ([`Library::keep`]).
+    pub fn set_shortcut(&self, url: &Url, on: bool) {
+        self.update(|s| s.set_shortcut(url, on));
+    }
+
+    /// Downloads the module of `url` and keeps it, if the library keeps it.
+    pub fn keep(&self, url: &Url) -> impl std::future::Future<Output = Result<(), String>> + use<> {
+        self.store.borrow().keep(url)
+    }
+
+    /// Whether there is a newer module of `url` than the kept one
+    /// ([`Store::check_update`]).
+    pub fn check_update(&self, url: &Url) -> impl std::future::Future<Output = bool> + use<> {
+        self.store.borrow().check_update(url)
+    }
+
+    /// Makes the newer module of `url` the kept one; sessions opened from
+    /// then on run it.
+    pub fn apply_update(&self, url: &Url) {
+        if let Err(e) = self.store.borrow().apply_update(url) {
+            eprintln!("hyperb: cannot update the app: {e}");
+        }
+    }
+
     pub fn forget(&self, address: &str) {
         self.update(|s| s.update(|l, _| l.forget(address)));
     }

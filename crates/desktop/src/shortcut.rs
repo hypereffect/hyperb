@@ -5,6 +5,10 @@
 //! process was started, with the address as its argument, and has the title,
 //! description and icon of the app. The shortcut can be removed again, which
 //! deletes every file it was made of.
+//!
+//! The library records the shortcut, so a remote wasm app with one is kept
+//! in the data directory and opens from there, offline too; it offers to
+//! update when the module at its address changes (see [`crate::tab`]).
 
 use crate::library::Library;
 use crate::tab::Tab;
@@ -31,10 +35,13 @@ struct Shortcut {
     icon: Vec<u8>,
 }
 
-/// Makes a shortcut to the app of tab `t`, then tells the user where it is,
-/// or what went wrong.
+/// Makes a shortcut to the app of tab `t` and saves its module if it is a
+/// remote wasm app, then tells the user where it is, or what went wrong.
 pub fn create(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
     let Some(entry) = t.entry() else { return };
+    let Ok(url) = hyperb_core::address::normalize(&entry.address) else {
+        return;
+    };
     let texture = entry.icon.as_deref().and_then(|i| library.icon(i));
     let s = Shortcut {
         description: t.description().unwrap_or_else(|| entry.address.clone()),
@@ -42,13 +49,24 @@ pub fn create(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
         address: entry.address,
         title: app_name(&entry.title),
     };
-    let window = window.clone();
+    let (window, library) = (window.clone(), library.clone());
     glib::spawn_future_local(async move {
         let dialog = match gio::spawn_blocking(move || install(&s)).await {
-            Ok(Ok(path)) => gtk::AlertDialog::builder()
-                .message("Shortcut created")
-                .detail(path.display().to_string())
-                .build(),
+            Ok(Ok(path)) => {
+                library.set_shortcut(&url, true);
+                let mut detail = path.display().to_string();
+                if library.with(|l| l.keeps_module(&url))
+                    && let Err(e) = library.keep(&url).await
+                {
+                    detail.push_str(&format!(
+                        "\n\nThe app could not be saved for offline use ({e}); it will be the next time it opens."
+                    ));
+                }
+                gtk::AlertDialog::builder()
+                    .message("Shortcut created")
+                    .detail(detail)
+                    .build()
+            }
             Ok(Err(e)) => gtk::AlertDialog::builder()
                 .message("Could not create the shortcut")
                 .detail(e.to_string())
@@ -67,11 +85,15 @@ pub fn installed(t: &Tab) -> bool {
         .any(|p| is_shortcut(p))
 }
 
-/// Removes the desktop shortcut to the app of tab `t`, then tells the user
-/// what was removed, or what went wrong.
-pub fn remove(window: &gtk::Window, t: &Tab) {
+/// Removes the desktop shortcut to the app of tab `t`, and its saved module
+/// unless a favorite keeps it, then tells the user what was removed, or what
+/// went wrong.
+pub fn remove(window: &gtk::Window, library: &Rc<Library>, t: &Tab) {
     let Some(entry) = t.entry() else { return };
     let (address, title) = (entry.address, entry.title);
+    if let Ok(url) = hyperb_core::address::normalize(&address) {
+        library.set_shortcut(&url, false);
+    }
     let window = window.clone();
     glib::spawn_future_local(async move {
         let dialog = match gio::spawn_blocking(move || uninstall(&address, &title)).await {
