@@ -27,19 +27,14 @@ macro_rules! select_app {
 }
 
 select_app! {
-    "billsplit" => crate::billsplit::BillSplit,
     "chart" => crate::chart::Chart,
     "dbclient" => crate::dbclient::DbClient,
-    "finance" => crate::finance::Finance,
     "grammar" => crate::grammar::Grammar,
     "minecraft" => crate::minecraft::Minecraft,
     "pomodoro" => crate::pomodoro::Pomodoro,
-    "qr" => crate::qr::Qr,
     "restaurant" => crate::restaurant::Restaurant,
     "saas" => crate::saas::Saas,
     "smarthome" => crate::smarthome::SmartHome,
-    "textutils" => crate::textutils::TextUtils,
-    "worldclock" => crate::worldclock::WorldClock,
 }
 
 use hypereffect::server::Server;

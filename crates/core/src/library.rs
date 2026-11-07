@@ -56,34 +56,14 @@ pub const DEMOS: &[Demo] = &[
         "Reserve a table",
     ),
     demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm",
-        "Text Utilities",
-        "A pocket knife of small tools for text, data, numbers and more",
-    ),
-    demo(
         "hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm",
         "Pomodoro Timer",
         "A focus timer",
     ),
     demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/qr.wasm",
-        "QR Code Generator",
-        "QR codes",
-    ),
-    demo(
         "hyperb://hypereffect.github.io/hyperb/apps/chart.wasm",
         "Chart Maker",
         "Charts",
-    ),
-    demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm",
-        "Bill Splitter",
-        "Split a bill",
-    ),
-    demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/finance.wasm",
-        "Financial Calculator",
-        "An RPN financial calculator",
     ),
     demo(
         "hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm",
@@ -109,11 +89,6 @@ pub const DEMOS: &[Demo] = &[
         "hyperb://hypereffect.github.io/hyperb/apps/smarthome.wasm",
         "Smart Home",
         "A simulated house",
-    ),
-    demo(
-        "hyperb://hypereffect.github.io/hyperb/apps/worldclock.wasm",
-        "World Clock",
-        "Clocks across time zones",
     ),
 ];
 

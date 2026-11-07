@@ -31,7 +31,7 @@ desktop-install:
 tui *args:
     cargo run -p hyperb-tui -- {{args}}
 
-# Run hypb, the command-line tool that inspects and scripts apps, e.g. `just cli state wasm-apps/qr.wasm`
+# Run hypb, the command-line tool that inspects and scripts apps, e.g. `just cli state wasm-apps/pomodoro.wasm`
 cli *args:
     cargo run -q -p hyperb-cli -- {{args}}
 

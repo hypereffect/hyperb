@@ -19,23 +19,18 @@ Applications are servers that send `metadata`, `element`, or `signal` messages. 
 [SPEC.md](SPEC.md) is a thin layer on top of the [hypereffect](https://hypereffect.dev) protocol. There is no client-side computation, and the browser defines one homogeneous style. The server provides only the layout skeleton and the basic behavior of the elements, and the client's only way to communicate with the server is by sending `action` messages. In the case of WASM modules they are executed locally inside the **hyperb** app, but play the role of a server.
 
 # Demo apps
-The demo apps are WASM modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. Some of these can actually be useful in practice, others are just demos with fake data. Either way because they don't interact with real servers, but only with a WASM sandbox, they don't represent the true powers of **hyperb**, only a small part of it.
+The demo apps are WASM modules (`crates/demoapps`), hosted at `hyperb://hypereffect.github.io/hyperb/apps/<app>.wasm`. They are demos with fake data, and because they don't interact with real servers, but only with a WASM sandbox, they don't represent the true powers of **hyperb**, only a small part of it.
 
 The links below open the demo apps in the web renderer instance, but the same URLs can be open in the desktop, Android or TUI renderers.
 
-* [`qr`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/qr.wasm): generate QR codes
-* [`textutils`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/textutils.wasm): a pocket knife of small tools for text, data, numbers and more
 * [`pomodoro`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/pomodoro.wasm): a focus timer
 * [`chart`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/chart.wasm): generate charts from pasted data
-* [`billsplit`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/billsplit.wasm): split a bill
-* [`finance`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/finance.wasm): an RPN financial calculator
 * [`grammar`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/grammar.wasm): a grammar checker, using Harper
 * [`restaurant`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/restaurant.wasm): reserve a table
 * [`dbclient`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/dbclient.wasm): a SQL client over fake tables
 * [`minecraft`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/minecraft.wasm): a fake Minecraft server's admin console
 * [`saas`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/saas.wasm): a fake product's admin panel
 * [`smarthome`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/smarthome.wasm): a simulated house
-* [`worldclock`](https://hypereffect.github.io/hyperb/?link=hyperb://hypereffect.github.io/hyperb/apps/worldclock.wasm): live clocks across time zones, and a time converter
 
 # Installation
 Grab the files from the [latest release](https://github.com/hypereffect/hyperb/releases/latest), or use the commands below, which all download the latest one.
