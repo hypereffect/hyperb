@@ -24,6 +24,7 @@ mod debug;
 mod library;
 mod render;
 mod shortcut;
+mod sidebar;
 mod standalone;
 mod tab;
 
@@ -116,6 +117,7 @@ fn main() -> glib::ExitCode {
     app.set_accels_for_action("win.close-tab", &["<Ctrl>w"]);
     app.set_accels_for_action("win.focus-url", &["<Ctrl>l", "F6"]);
     app.set_accels_for_action("win.reload", &["F5", "<Ctrl>r"]);
+    app.set_accels_for_action("win.debug", &["F12"]);
     app.run()
 }
 
@@ -204,6 +206,7 @@ impl Browser {
         notebook.set_scrollable(true);
         notebook.set_tab_pos(gtk::PositionType::Left);
         notebook.set_show_border(false);
+        sidebar::resizable(&notebook);
         let new_tab = gtk::Button::from_icon_name("list-add-symbolic");
         new_tab.add_css_class("flat");
         new_tab.set_tooltip_text(Some("New tab (Ctrl+T)"));
@@ -280,6 +283,7 @@ impl Browser {
             }
         });
         action("reload", |_, t| t.reload());
+        action("debug", |_, t| t.toggle_debugger());
 
         // The browser lives as long as its window.
         let keep = RefCell::new(Some(b.clone()));

@@ -57,6 +57,8 @@ pub struct Tab {
     status: gtk::Image,
     address_label: gtk::Label,
     star: gtk::ToggleButton,
+    /// Shows or hides the debugger panel.
+    debug_toggle: gtk::ToggleButton,
     banner: gtk::Box,
     banner_text: gtk::Label,
     /// Offers the newer module of a kept wasm app.
@@ -120,10 +122,12 @@ impl Tab {
             lead.add_named(&icon, Some("icon"));
             lead.set_visible_child_name("none");
             let title = gtk::Label::new(Some("New Tab"));
-            title.set_width_chars(18);
             title.set_max_width_chars(18);
             title.set_xalign(0.0);
             title.set_ellipsize(pango::EllipsizeMode::End);
+            // The title takes the width the tab has: the sidebar can be made
+            // narrower than the title, which then ellipsizes.
+            title.set_hexpand(true);
             let close_button = gtk::Button::from_icon_name("window-close-symbolic");
             close_button.add_css_class("flat");
             close_button.add_css_class("circular");
@@ -187,6 +191,18 @@ impl Tab {
             let library_button = gtk::MenuButton::new();
             library_button.set_icon_name("document-open-recent-symbolic");
             library_button.set_tooltip_text(Some("Favorites and history"));
+            let debug_toggle = gtk::ToggleButton::new();
+            debug_toggle.set_icon_name("utilities-terminal-symbolic");
+            debug_toggle.set_tooltip_text(Some("Hide debugger (F12)"));
+            debug_toggle.set_active(true);
+            debug_toggle.set_visible(!standalone);
+            debug_toggle.connect_toggled(|b| {
+                b.set_tooltip_text(Some(if b.is_active() {
+                    "Hide debugger (F12)"
+                } else {
+                    "Show debugger (F12)"
+                }));
+            });
             let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             toolbar.add_css_class("hb-toolbar");
             toolbar.append(&reload);
@@ -194,6 +210,7 @@ impl Tab {
             toolbar.append(&address_label);
             toolbar.append(&star);
             toolbar.append(&library_button);
+            toolbar.append(&debug_toggle);
             // A new tab has nothing to reload or star.
             toolbar.set_visible(false);
             // An app on its own shows only where it comes from, read-only.
@@ -301,12 +318,15 @@ impl Tab {
             body.append(&content);
             if !standalone {
                 body.append(&debug.widget);
-                // The debugger only takes space the page does not use.
+                // The debugger shows when it is on and only takes space the
+                // page does not use.
                 let panel = debug.widget.clone();
+                let toggle = debug_toggle.clone();
                 body.add_tick_callback(move |body, _| {
-                    let room = body.width() >= CONTENT_WIDTH + Debugger::WIDTH;
-                    if panel.is_visible() != room {
-                        panel.set_visible(room);
+                    let show =
+                        toggle.is_active() && body.width() >= CONTENT_WIDTH + Debugger::WIDTH;
+                    if panel.is_visible() != show {
+                        panel.set_visible(show);
                     }
                     glib::ControlFlow::Continue
                 });
@@ -377,6 +397,7 @@ impl Tab {
                 status,
                 address_label,
                 star,
+                debug_toggle,
                 banner,
                 banner_text,
                 update_banner,
@@ -473,6 +494,11 @@ impl Tab {
         }
         self.url_entry.grab_focus();
         true
+    }
+
+    /// Shows or hides the debugger panel, as the toolbar button and F12 do.
+    pub fn toggle_debugger(&self) {
+        self.debug_toggle.set_active(!self.debug_toggle.is_active());
     }
 
     /// Connects to what the user typed or picked. A tab that has an
