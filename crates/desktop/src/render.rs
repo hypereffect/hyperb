@@ -889,7 +889,15 @@ impl Renderer {
                     "avatar" => (40, gtk::ContentFit::Cover),
                     _ => (-1, gtk::ContentFit::Contain),
                 };
-                pic.set_size_request(size, size);
+                // A picture that may shrink is the first thing a box gives up
+                // when the page is taller than the window, and it can shrink
+                // to nothing: keep at least the image's own height, so it
+                // stays visible (and the page scrolls).
+                let height = match v {
+                    "thumbnail" | "avatar" => size,
+                    _ => pic.paintable().map_or(-1, |p| p.intrinsic_height()),
+                };
+                pic.set_size_request(size, height);
                 pic.set_content_fit(fit);
                 pic.set_overflow(gtk::Overflow::Hidden);
             }
