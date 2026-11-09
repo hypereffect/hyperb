@@ -7,11 +7,10 @@ name: Build Android APK
 # ANDROID_KEY_PASSWORD; without them the APK is signed with a throwaway debug key.
 #
 # To also publish the APK to Zapstore, commit zapstore.yaml and set the secret
-# ZAPSTORE_SIGN_WITH to the nsec (or NIP-46 bunker URL) of the key named as the
-# delegate in the app's C1 proof. Run `zsp` once locally, choose "Set up CI/CD
-# publishing", and let it create that proof. This needs the release keystore
-# above: the proof is bound to the APK signing certificate, so a debug-signed
-# APK cannot be published.
+# ZAPSTORE_OWNER_NSEC to the nsec (or NIP-46 bunker URL) of the Nostr key that
+# owns the app. The publish step creates the NIP-C1 certificate proof from the
+# release keystore, so it needs the ANDROID_KEYSTORE_* secrets above: a
+# debug-signed APK cannot be published.
 
 on:
   push:
@@ -89,35 +88,25 @@ jobs:
         with:
           files: dist/*
 
+      - uses: actions/setup-go@v5
+        if: github.ref_type == 'tag'
+        with:
+          go-version-file: packaging/zapstore/go.mod
+          cache-dependency-path: packaging/zapstore/go.sum
+
       - name: Publish to Zapstore
         if: github.ref_type == 'tag'
         env:
-          SIGN_WITH: ${{ secrets.ZAPSTORE_SIGN_WITH }}
+          SIGN_WITH: ${{ secrets.ZAPSTORE_OWNER_NSEC }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "${SIGN_WITH}" ]; then
-            echo "::warning::ZAPSTORE_SIGN_WITH is not set, skipping the Zapstore publish"
+            echo "::warning::ZAPSTORE_OWNER_NSEC is not set, skipping the Zapstore publish"
             exit 0
           fi
-          # The asset name contains the version, so resolve it through gh.
-          gh release download --repo zapstore/zsp --pattern '*linux-amd64' --dir "${RUNNER_TEMP}/zsp" --clobber
-          bin="$(find "${RUNNER_TEMP}/zsp" -maxdepth 1 -type f -name '*linux-amd64' -print -quit)"
-          chmod +x "${bin}"
-          out="${RUNNER_TEMP}/zsp-publish.json"
-          if "${bin}" publish --json -q >"${out}" 2>&1; then
-            cat "${out}"
+          if [ -z "${ANDROID_KEYSTORE:-}" ]; then
+            echo "::warning::the release keystore is not configured, skipping the Zapstore publish"
             exit 0
           fi
-          cat "${out}"
-          case "$(jq -r '.error.code // empty' "${out}")" in
-            proof_required)
-              echo "::warning::Zapstore has no C1 proof for this signing key yet. Run zsp locally once to create it. Skipping the Zapstore publish."
-              ;;
-            release_already_published)
-              echo "::notice::This release is already on Zapstore."
-              ;;
-            *)
-              exit 1
-              ;;
-          esac
+          go run ./packaging/zapstore
