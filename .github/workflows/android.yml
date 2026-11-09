@@ -109,4 +109,5 @@ jobs:
             echo "::warning::the release keystore is not configured, skipping the Zapstore publish"
             exit 0
           fi
-          go run ./packaging/zapstore
+          (cd packaging/zapstore && go build -o "${RUNNER_TEMP}/zapstore" .)
+          "${RUNNER_TEMP}/zapstore"
