@@ -1,0 +1,22 @@
+# Zapstore listing for the Android build. Published by the "Publish to Zapstore"
+# step in .github/workflows/android.yml after the APK is attached to the release.
+repository: https://github.com/hypereffect/hyperb
+release_filter: '^android-[0-9]+-[0-9]+$'
+match: '^hyperb-android-.*\.apk$'
+
+name: hyperb
+summary: A browser for small server-driven applications.
+description: |
+  **hyperb** is a browser for small server-driven applications that put
+  content first. The server sends a basic layout of components along with
+  their data; a visually neutral client renders it, collects input, and sends
+  it back to the server.
+
+  It is made for server admin dashboards, remote controls for hardware,
+  sandboxed WASM modules, and simple form-driven apps where content matters
+  more than appearance.
+license: MIT OR Apache-2.0
+website: https://github.com/hypereffect/hyperb
+tags: [browser, hypermedia, iroh]
+icon: ./assets/icon.png
+metadata_sources: [github]
