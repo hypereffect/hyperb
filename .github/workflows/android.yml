@@ -104,4 +104,20 @@ jobs:
           gh release download --repo zapstore/zsp --pattern '*linux-amd64' --dir "${RUNNER_TEMP}/zsp" --clobber
           bin="$(find "${RUNNER_TEMP}/zsp" -maxdepth 1 -type f -name '*linux-amd64' -print -quit)"
           chmod +x "${bin}"
-          "${bin}" publish --json -q
+          out="${RUNNER_TEMP}/zsp-publish.json"
+          if "${bin}" publish --json -q >"${out}" 2>&1; then
+            cat "${out}"
+            exit 0
+          fi
+          cat "${out}"
+          case "$(jq -r '.error.code // empty' "${out}")" in
+            proof_required)
+              echo "::warning::Zapstore has no C1 proof for this signing key yet. Run zsp locally once to create it. Skipping the Zapstore publish."
+              ;;
+            release_already_published)
+              echo "::notice::This release is already on Zapstore."
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
