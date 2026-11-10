@@ -5,6 +5,12 @@ name: Build Android APK
 # (needed for the APK to upgrade a previous install) set the secrets
 # ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
 # ANDROID_KEY_PASSWORD; without them the APK is signed with a throwaway debug key.
+#
+# To also publish the APK to Zapstore, commit zapstore.yaml and set the secret
+# ZAPSTORE_OWNER_NSEC to the nsec (or NIP-46 bunker URL) of the Nostr key that
+# owns the app. The publish step creates the NIP-C1 certificate proof from the
+# release keystore, so it needs the ANDROID_KEYSTORE_* secrets above: a
+# debug-signed APK cannot be published.
 
 on:
   push:
@@ -81,3 +87,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+
+      - uses: actions/setup-go@v5
+        if: github.ref_type == 'tag'
+        with:
+          go-version-file: packaging/zapstore/go.mod
+          cache-dependency-path: packaging/zapstore/go.sum
+
+      - name: Publish to Zapstore
+        if: github.ref_type == 'tag'
+        env:
+          SIGN_WITH: ${{ secrets.ZAPSTORE_OWNER_NSEC }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGN_WITH}" ]; then
+            echo "::warning::ZAPSTORE_OWNER_NSEC is not set, skipping the Zapstore publish"
+            exit 0
+          fi
+          if [ -z "${ANDROID_KEYSTORE:-}" ]; then
+            echo "::warning::the release keystore is not configured, skipping the Zapstore publish"
+            exit 0
+          fi
+          (cd packaging/zapstore && go build -o "${RUNNER_TEMP}/zapstore" .)
+          "${RUNNER_TEMP}/zapstore"
