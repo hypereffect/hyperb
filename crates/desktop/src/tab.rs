@@ -319,12 +319,19 @@ impl Tab {
             if !standalone {
                 body.append(&debug.widget);
                 // The debugger shows when it is on and only takes space the
-                // page does not use.
+                // page does not use. Its width is part of the window's
+                // minimum, so measure the page itself: a page that needs more
+                // than CONTENT_WIDTH would otherwise keep the window too wide
+                // for this check to ever hide the panel, and so too wide to
+                // shrink at all. Hiding it at exactly that width (rather than
+                // at or above it) breaks that cycle.
                 let panel = debug.widget.clone();
                 let toggle = debug_toggle.clone();
+                let shown = content.clone();
                 body.add_tick_callback(move |body, _| {
-                    let show =
-                        toggle.is_active() && body.width() >= CONTENT_WIDTH + Debugger::WIDTH;
+                    let page = shown.measure(gtk::Orientation::Horizontal, -1).0;
+                    let show = toggle.is_active()
+                        && body.width() > page.max(CONTENT_WIDTH) + Debugger::WIDTH;
                     if panel.is_visible() != show {
                         panel.set_visible(show);
                     }
