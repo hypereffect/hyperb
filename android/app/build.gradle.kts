@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -27,6 +30,33 @@ val rustlsVersion = providers.of(RustlsVersion::class.java) {
     parameters.lockFile.set(rootProject.layout.projectDirectory.file("../Cargo.lock"))
 }
 
+/**
+ * Local release signing. CI passes ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD,
+ * ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD in the environment; Android Studio
+ * and local Gradle runs read android/keystore.properties instead. That file is
+ * gitignored:
+ *
+ *   storeFile=~/android-release/release.jks
+ *   storePassword=...
+ *   keyAlias=hyperb
+ *   keyPassword=...
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun keystoreValue(env: String, property: String): String? =
+    System.getenv(env) ?: keystoreProperties.getProperty(property)
+
+fun keystorePath(path: String): File = when {
+    path.startsWith("~/") -> File(System.getProperty("user.home"), path.removePrefix("~/"))
+    File(path).isAbsolute -> File(path)
+    else -> rootProject.file(path)
+}
+
 configurations.configureEach {
     resolutionStrategy.eachDependency {
         if (requested.group == "org.rustls" && requested.name == "rustls-platform-verifier") {
@@ -54,13 +84,15 @@ android {
     }
 
     signingConfigs {
-        // Only set up by the release workflow; locally, release builds fall back to the debug key.
-        System.getenv("ANDROID_KEYSTORE")?.let { keystore ->
+        // CI passes the key in the environment; local builds read
+        // android/keystore.properties. Without either, release builds fall back
+        // to the debug key.
+        keystoreValue("ANDROID_KEYSTORE", "storeFile")?.let { keystore ->
             create("release") {
-                storeFile = file(keystore)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                storeFile = keystorePath(keystore)
+                storePassword = keystoreValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = keystoreValue("ANDROID_KEY_ALIAS", "keyAlias")
+                keyPassword = keystoreValue("ANDROID_KEY_PASSWORD", "keyPassword")
             }
         }
     }
