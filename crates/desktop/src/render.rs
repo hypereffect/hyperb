@@ -228,7 +228,7 @@ impl Renderer {
             Component::Card => {
                 let outer = vbox(10);
                 outer.add_css_class("he-card");
-                let title = label("he-card-title");
+                let title = content_label("he-card-title");
                 let inner = vbox(0);
                 outer.append(&title);
                 outer.append(&inner);
@@ -239,7 +239,7 @@ impl Renderer {
                 outer.add_css_class("he-list");
                 let items = vbox(0);
                 items.add_css_class("he-list-items");
-                let empty = label("he-list-empty");
+                let empty = content_label("he-list-empty");
                 outer.append(&items);
                 outer.append(&empty);
                 (outer.upcast(), Some(items), Kind::List { empty })
@@ -274,7 +274,7 @@ impl Renderer {
                 card.set_vexpand(true);
                 card.set_size_request(380, -1);
                 let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                let title = label("he-dialog-title");
+                let title = content_label("he-dialog-title");
                 title.set_hexpand(true);
                 let close = gtk::Button::from_icon_name("window-close-symbolic");
                 close.add_css_class("flat");
@@ -315,8 +315,8 @@ impl Renderer {
                 icon.set_valign(gtk::Align::Start);
                 let col = vbox(2);
                 col.set_hexpand(true);
-                let title = label("he-notice-title");
-                let text = label("he-notice-text");
+                let title = content_label("he-notice-title");
+                let text = content_label("he-notice-text");
                 col.append(&title);
                 col.append(&text);
                 outer.append(&icon);
@@ -326,13 +326,15 @@ impl Renderer {
             Component::Badge => {
                 let l = gtk::Label::new(None);
                 l.add_css_class("he-badge");
+                l.set_selectable(true);
+                l.set_focusable(false);
                 (l.clone().upcast(), None, Kind::Badge(l))
             }
             Component::Image => {
                 let outer = vbox(0);
                 let pic = gtk::Picture::new();
                 pic.set_can_shrink(true);
-                let alt = label("he-image-alt");
+                let alt = content_label("he-image-alt");
                 outer.append(&pic);
                 outer.append(&alt);
                 let src = RefCell::new(None);
@@ -1218,6 +1220,15 @@ fn vbox(spacing: i32) -> gtk::Box {
 fn label(class: &str) -> gtk::Label {
     let l = label_with(class);
     l.set_visible(true);
+    l
+}
+
+/// A label showing page content: selectable with the mouse, but kept out of
+/// the focus chain so it adds no Tab stop and is never select-all'd on focus.
+fn content_label(class: &str) -> gtk::Label {
+    let l = label(class);
+    l.set_selectable(true);
+    l.set_focusable(false);
     l
 }
 
