@@ -37,8 +37,30 @@ pub enum Event {
     Closed(Option<String>),
 }
 
+/// The members hyperb defines in the hypereffect `hello` (`SPEC.md`,
+/// section 1.8). Send it with `Client::hello_with`; an app reads it from the
+/// hello's object with [`Hello::from_map`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Hello {
+    /// The session parameters of the address. Omitted when there are none.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+}
+
+impl Hello {
+    /// Reads the members hyperb defines from a hello's object. A `params`
+    /// that is not an object of strings counts as no parameters.
+    pub fn from_map(hello: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let params = hello
+            .get("params")
+            .and_then(|p| serde_json::from_value(p.clone()).ok())
+            .unwrap_or_default();
+        Hello { params }
+    }
+}
+
 pub struct Connection {
-    params: BTreeMap<String, String>,
+    hello: Hello,
     out: async_channel::Sender<String>,
     events: async_channel::Receiver<Event>,
     abort: AbortHandle,
@@ -61,7 +83,9 @@ impl Connection {
         let (out, out_rx) = async_channel::unbounded();
         let (ev_tx, events) = async_channel::unbounded();
         let (abort, reg) = AbortHandle::new_pair();
-        let params = address::params(url);
+        let hello = Hello {
+            params: address::params(url),
+        };
         let url = url.clone();
         spawn(async move {
             let run = async {
@@ -90,17 +114,17 @@ impl Connection {
             }
         });
         Connection {
-            params,
+            hello,
             out,
             events,
             abort,
         }
     }
 
-    /// The session parameters of the address, which the `hello` carries
-    /// (`Client::hello_with`).
-    pub fn params(&self) -> &BTreeMap<String, String> {
-        &self.params
+    /// What the `hello` carries (`Client::hello_with`): the session
+    /// parameters of the address.
+    pub fn hello(&self) -> &Hello {
+        &self.hello
     }
 
     /// Queues a line to send. Ignored once the connection has closed.
@@ -211,4 +235,29 @@ pub(crate) fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn spawn(fut: impl Future<Output = ()> + 'static) {
     wasm_bindgen_futures::spawn_local(fut);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Hello;
+    use hypereffect::client::Client;
+    use serde_json::json;
+
+    #[test]
+    fn hello_carries_params() {
+        let mut c = Client::new();
+        assert_eq!(c.hello_with(&Hello::default()), "hello {}\n");
+        let hello = Hello {
+            params: [("room".into(), "abc".into())].into(),
+        };
+        assert_eq!(
+            c.hello_with(&hello),
+            "hello {\"params\":{\"room\":\"abc\"}}\n"
+        );
+
+        let read = |v: serde_json::Value| Hello::from_map(v.as_object().unwrap());
+        assert_eq!(read(json!({"params":{"room":"abc"},"other":1})), hello);
+        assert_eq!(read(json!({"params":{"n":1}})), Hello::default());
+        assert_eq!(read(json!({})), Hello::default());
+    }
 }

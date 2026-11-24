@@ -204,13 +204,13 @@ impl Ctx {
     fn handle(self, ev: Event) {
         match ev {
             Event::Open => {
-                let params = self
+                let body = self
                     .conn
-                    .with_value(|c| c.as_ref().map(|c| c.params().clone()))
+                    .with_value(|c| c.as_ref().map(|c| c.hello().clone()))
                     .unwrap_or_default();
                 let hello = self
                     .client
-                    .try_update_value(|c| c.hello_with(&params))
+                    .try_update_value(|c| c.hello_with(&body))
                     .unwrap_or_default();
                 self.send(hello);
                 self.state.set(Some(State::Open));

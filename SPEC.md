@@ -3,7 +3,9 @@
 hyperb renderers display [hypereffect](https://crates.io/crates/hypereffect)
 apps. This document specifies how a renderer is pointed at an app (the
 `hyperb://` address) and how it talks to it over each of the three kinds of
-session. The hypereffect message protocol itself is not covered here.
+session. The hypereffect message protocol itself is not covered here, except
+for the members hyperb defines in it: `params` in the `hello` (section 1.8)
+and `url` in the `metadata` (section 1.9).
 
 Status: all of it is implemented in `hyperb-core` (`address.rs`, `http.rs`,
 and `net/iroh.rs`, `net/wasm.rs` behind the `iroh` and `wasm` features). The
@@ -151,10 +153,25 @@ hyperb://example.com/restaurant#room=abc&table=4
 
 The fragment is never sent to a server, in an HTTP request or in the ALPN of
 an iroh session. The renderer reads the parameters when it opens the session
-and sends them once, in the `hello` (section 5); none are sent after that. A
-`hello` with no parameters is `hello {}`, with them
-`hello {"params":{"room":"abc","table":"4"}}`. Parameters are not signals:
-the app receives them apart from the signals, and only on `hello`.
+and sends them once, in the `hello` (section 5); none are sent after that.
+
+hypereffect lets the `hello` carry any JSON object and leaves the meaning of
+its members to the protocols built on top of it. hyperb defines one,
+`params`:
+
+- `params` is an object whose members are the parameters, each value a
+  string. A renderer omits it when the address has no parameters, so a
+  `hello` with no parameters is `hello {}`, and with them
+  `hello {"params":{"room":"abc","table":"4"}}`.
+- An app treats a `params` that is not an object of strings as no
+  parameters. Like everything the renderer sends, parameters are user input.
+- Other members of the `hello` are not defined by hyperb. A hyperb renderer
+  sends none, and an app ignores the ones it does not know, so a protocol on
+  top of hyperb can add its own.
+
+Parameters are not signals: the app receives them apart from the signals,
+and only on `hello`. In `hyperb-core`, `net::Hello` is what a renderer sends
+and what an app reads with `Hello::from_map`.
 
 Query strings (`?query`) have no meaning in the hyperb protocol. An HTTP
 address keeps its query in the request URL as it is, since it belongs to the

@@ -11,7 +11,6 @@ use super::chart::{PALETTE, Point, draw};
 use super::common::{menu, number, replace, text};
 use super::img::{self, Canvas};
 use hypereffect::{Action, App, Element, Handler, Map, Outbox, Value, cel, json, ui};
-use std::collections::BTreeMap;
 
 const TICK_MS: u32 = 1000;
 /// House minutes per tick.
@@ -624,7 +623,7 @@ impl SmartHome {
 }
 
 impl App for SmartHome {
-    fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
+    fn hello(&mut self, out: &mut Outbox, _: &Map<String, Value>) {
         self.watts = self.draws().iter().map(|(_, w)| w).sum();
         self.history.push((self.minute, self.watts));
         self.note("The house is online");

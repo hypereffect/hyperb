@@ -7,9 +7,8 @@
 //! aligned text and paged; past queries can be recalled.
 
 use super::common::menu;
-use hypereffect::{Action, App, Handler, Outbox, Value, cel, json, ui};
+use hypereffect::{Action, App, Handler, Map, Outbox, Value, cel, json, ui};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 const PAGE: usize = 10;
@@ -1566,7 +1565,7 @@ impl DbClient {
 }
 
 impl App for DbClient {
-    fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
+    fn hello(&mut self, out: &mut Outbox, _: &Map<String, Value>) {
         self.db = database();
         out.signal(json!({
             "form": {"sql": "SELECT * FROM customers LIMIT 20", "table": "customers", "example": ""},

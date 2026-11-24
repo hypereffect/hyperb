@@ -483,7 +483,11 @@ fn stream(
                     ok
                 }
                 ServerMessage::Remove { id } => shown.remove(id) || filters.ids.contains(id),
-                ServerMessage::Signal(_) | ServerMessage::Metadata(_) => false,
+                ServerMessage::Signal(_) | ServerMessage::Metadata(_) | ServerMessage::Log(_) => {
+                    false
+                }
+                // It ends the session, whatever the filters.
+                ServerMessage::Close(_) => true,
             };
             if print {
                 out(&format!("{prefix}{}", m.to_line()));

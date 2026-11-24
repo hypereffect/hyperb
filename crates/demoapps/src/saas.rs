@@ -10,7 +10,6 @@ use super::chart::{PALETTE, Point, draw};
 use super::common::{group, menu, number, replace, text};
 use super::img;
 use hypereffect::{Action, App, Element, Handler, Map, Outbox, Value, cel, json, ui};
-use std::collections::BTreeMap;
 
 const PAGE: usize = 6;
 const AUDIT_SHOWN: usize = 12;
@@ -334,7 +333,7 @@ impl Saas {
 }
 
 impl App for Saas {
-    fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
+    fn hello(&mut self, out: &mut Outbox, _: &Map<String, Value>) {
         (self.q, self.plan, self.status) = (String::new(), "all".into(), "all".into());
         out.signal(json!({
             "filters": {"q": "", "plan": "all", "status": "all"},

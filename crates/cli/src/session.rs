@@ -114,7 +114,7 @@ impl Session {
             };
             match ev {
                 Event::Open => {
-                    let hello = self.client.hello_with(self.conn.params());
+                    let hello = self.client.hello_with(self.conn.hello());
                     self.reader = LineBuffer::new();
                     self.conn.send(hello);
                 }

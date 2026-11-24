@@ -7,8 +7,7 @@
 
 use super::common::{feedback, menu, text};
 use super::img::{self, Canvas, Rgb, text_width};
-use hypereffect::{Action, App, Handler, Outbox, cel, json, ui};
-use std::collections::BTreeMap;
+use hypereffect::{Action, App, Handler, Map, Outbox, Value, cel, json, ui};
 
 const W: i32 = 640;
 const H: i32 = 400;
@@ -273,7 +272,7 @@ impl Chart {
 }
 
 impl App for Chart {
-    fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
+    fn hello(&mut self, out: &mut Outbox, _: &Map<String, Value>) {
         let form =
             json!({"title": "Coffees per day", "data": SAMPLE, "kind": "bar", "color": "blue"});
         out.signal(json!({

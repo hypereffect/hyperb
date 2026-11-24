@@ -3,8 +3,7 @@
 //! A guest types their name, picks a party size and a time slot, and books.
 //! The booking lasts as long as the session.
 
-use hypereffect::{App, Handler, Outbox, Value, json, ui};
-use std::collections::BTreeMap;
+use hypereffect::{App, Handler, Map, Outbox, Value, json, ui};
 
 /// Party sizes on the menu.
 const SIZE_MENU: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -25,7 +24,7 @@ fn menu(values: &[&str]) -> Vec<Value> {
 }
 
 impl App for Restaurant {
-    fn hello(&mut self, out: &mut Outbox, _: &BTreeMap<String, String>) {
+    fn hello(&mut self, out: &mut Outbox, _: &Map<String, Value>) {
         out.signal(json!({
             "guest": "",
             "booked": false,
