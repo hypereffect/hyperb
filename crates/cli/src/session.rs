@@ -5,6 +5,7 @@
 //! terminal renderer, so every mode can wait on them with a deadline. The
 //! `hello` goes out as soon as the transport opens.
 
+use crate::history::{Dir, History};
 use hyperb_core::hypereffect::client::Client;
 use hyperb_core::hypereffect::signals::{merge_patch, strip_local_map};
 use hyperb_core::hypereffect::{Action, LineBuffer, RendererMessage, Value};
@@ -26,6 +27,11 @@ pub struct Session {
     closed: Option<Option<String>>,
     /// Whether diagnostics from the client go to stderr.
     verbose: bool,
+    start: Instant,
+    /// Every message both ways with the signals of the moment, if kept.
+    pub history: Option<History>,
+    /// Where diagnostics and notes go instead of standard error, if set.
+    pub notes: Option<Vec<String>>,
 }
 
 /// How [`Session::settle`] ended.
@@ -84,6 +90,9 @@ impl Session {
             pending: VecDeque::new(),
             closed: None,
             verbose,
+            start: Instant::now(),
+            history: None,
+            notes: None,
         }
     }
 
@@ -94,7 +103,7 @@ impl Session {
     pub fn next_line(&mut self, deadline: Option<Instant>) -> Option<Received> {
         loop {
             if let Some(line) = self.pending.pop_front() {
-                self.client.receive_line(&line);
+                self.apply(&line);
                 self.report();
                 return Some(Received::Line(line));
             }
@@ -116,7 +125,7 @@ impl Session {
                 Event::Open => {
                     let hello = self.client.hello_with(self.conn.hello());
                     self.reader = LineBuffer::new();
-                    self.conn.send(hello);
+                    self.send(hello);
                 }
                 Event::Data(data) => self.pending.extend(self.reader.push(data.as_bytes())),
                 Event::Closed(reason) => {
@@ -136,7 +145,7 @@ impl Session {
         };
         let mut lines = vec![first];
         while let Some(line) = self.pending.pop_front() {
-            self.client.receive_line(&line);
+            self.apply(&line);
             lines.push(line);
         }
         self.report();
@@ -159,8 +168,32 @@ impl Session {
         }
     }
 
-    pub fn send(&self, line: String) {
+    /// Applies a line from the app, keeping it.
+    fn apply(&mut self, line: &str) {
+        self.client.receive_line(line);
+        self.remember(Dir::Server, line);
+    }
+
+    /// Adds a line just sent or applied to the history, if one is kept.
+    fn remember(&mut self, dir: Dir, line: &str) {
+        let t = self.start.elapsed().as_secs_f64();
+        if let Some(h) = &mut self.history {
+            h.push(t, dir, line, self.client.signals());
+        }
+    }
+
+    pub fn send(&mut self, line: String) {
+        self.remember(Dir::Client, &line);
         self.conn.send(line);
+    }
+
+    /// A note for the user: kept in [`notes`](Self::notes) if set, printed
+    /// to standard error otherwise.
+    fn note(&mut self, message: String) {
+        match &mut self.notes {
+            Some(n) => n.push(message),
+            None => eprintln!("hypb: {message}"),
+        }
     }
 
     /// The action line for `name`, carrying the current signals (without
@@ -198,7 +231,7 @@ impl Session {
     pub fn trigger(&mut self, id: &str, event: &str) -> bool {
         let line = self.client.trigger(id, event);
         for url in self.client.take_opens() {
-            eprintln!("hypb: {id}.{event} asks to open {url}");
+            self.note(format!("{id}.{event} asks to open {url}"));
         }
         self.report();
         match line {
@@ -210,13 +243,18 @@ impl Session {
         }
     }
 
-    /// Prints the client's diagnostics, if asked to.
+    /// Prints the client's diagnostics, if asked to, or keeps them in
+    /// [`notes`](Self::notes).
     pub fn report(&mut self) {
         let diags = self.client.take_diagnostics();
-        if self.verbose {
-            for d in diags {
-                eprintln!("hypb: {d}");
+        match &mut self.notes {
+            Some(n) => n.extend(diags),
+            None if self.verbose => {
+                for d in diags {
+                    eprintln!("hypb: {d}");
+                }
             }
+            None => {}
         }
     }
 }

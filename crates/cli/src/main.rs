@@ -3,6 +3,7 @@
 //! ```text
 //! hypb <address>                    the messages the app sends
 //! hypb state <address>              its signals and tree, again after every change
+//! hypb ui <address>                 the same, interactive, with the history
 //! hypb action <address> <name>      fires an action
 //! hypb run <address> [script.js]    runs a script against it
 //! ```
@@ -10,9 +11,11 @@
 //! Addresses are the ones every renderer opens (`SPEC.md`): HTTP, iroh and
 //! wasm apps alike, with the session parameters in the fragment.
 
+mod history;
 mod script;
 mod session;
 mod tree;
+mod ui;
 
 use clap::{Args, Parser, Subcommand};
 use hyperb_core::address;
@@ -61,6 +64,15 @@ enum Command {
         debounce: u64,
         #[command(flatten)]
         look: Look,
+    },
+    /// Shows the tree in the terminal, interactive, with the history of the session to go back in
+    #[command(after_help = UI_HELP)]
+    Ui {
+        #[command(flatten)]
+        target: Target,
+        /// Cut texts longer than this, in characters
+        #[arg(long, value_name = "N", default_value_t = 48)]
+        max_text: usize,
     },
     /// Fires an action, then prints it (after `> `) and what the app sends back (after `< `)
     #[command(after_help = ACTION_EXAMPLES)]
@@ -142,6 +154,34 @@ Example:
 Each line is an element's type and id, what it shows, the signal it is bound to
 with its value, and what its handlers do: the action and payload they send, the
 signals they patch or the address they open.";
+
+const UI_HELP: &str = "\
+The page is what `hypb state` prints, with the controls usable as in a renderer:
+type into inputs, press buttons, toggle checkboxes, change selects, sliders and
+tabs. Bound signals are written and handlers run as a renderer would; the page
+changes in place as the app sends.
+
+The sidebar is the history: every message both ways, each kept with the signals
+the client held at that moment (• marks the entries where they changed). Going
+to an entry rebuilds the page as it was right after it, from scratch, and stays
+there, read-only, as new messages arrive, until `live` is chosen again.
+
+Keys:
+  ↑ ↓ Tab           move between controls
+  Enter Space       press a button, edit an input, toggle a checkbox
+  ← →               change a select, slider or tabs
+  Esc               stop editing; otherwise back to live
+  [ ]  (or p n)     one step back or forward in the history, which then has
+                    the keys: ↑ ↓ step, PgUp PgDn page, Home End first and
+                    live, Enter Tab → back to the page, Esc back to live
+  Home End          the first entry; live
+  a s               show all attributes; show the signals
+  PgUp PgDn         scroll
+  q  Ctrl+C         quit
+The mouse works too: click rows, options, tabs and slider bars, and the history.
+
+Example:
+  hypb ui ~/apps/counter.wasm";
 
 const ACTION_EXAMPLES: &str = "\
 Examples:
@@ -296,6 +336,13 @@ fn main() -> ExitCode {
                 &look.opts(),
             )
         }),
+        Some(Command::Ui { target, max_text }) => (|| {
+            if !std::io::stdout().is_terminal() {
+                return Err("hypb ui needs a terminal; `hypb state` prints the same".to_string());
+            }
+            let session = Session::connect(&parse(&target)?, target.key, false);
+            ui::run(session, max_text)
+        })(),
         Some(Command::Action {
             target,
             name,

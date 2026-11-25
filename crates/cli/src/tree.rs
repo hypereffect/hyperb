@@ -44,6 +44,33 @@ pub fn render(tree: &[ResolvedTree], client: &Client, opts: &Opts) -> String {
 }
 
 fn node_into(out: &mut String, n: &ResolvedTree, depth: usize, client: &Client, opts: &Opts) {
+    let parts = describe(n, client, opts, false);
+    let indent = "  ".repeat(depth);
+    let _ = write!(
+        out,
+        "{indent}{} {}",
+        paint(opts, BOLD, n.component.name()),
+        paint(opts, DIM, &n.id)
+    );
+    for p in &parts {
+        out.push(' ');
+        out.push_str(p);
+    }
+    for (event, h) in handlers(n.component, &n.attrs) {
+        let _ = write!(out, "  {}", paint(opts, YELLOW, &format!("⚡ {event} →")));
+        out.push_str(&handler(h, opts));
+    }
+    out.push('\n');
+    for c in &n.children {
+        node_into(out, c, depth + 1, client, opts);
+    }
+}
+
+/// The one or two attributes that say what an element shows, the signal
+/// it edits and its state (hidden, disabled, closed). `interactive` leaves
+/// out what `hypb ui` draws as a widget: the bound value and the options of
+/// a select.
+pub fn describe(n: &ResolvedTree, client: &Client, opts: &Opts, interactive: bool) -> Vec<String> {
     let a = &n.attrs;
     let s = |k: &str| a.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
     let q = |t: &str| quote(t, opts.max_text);
@@ -81,7 +108,7 @@ fn node_into(out: &mut String, n: &ResolvedTree, depth: usize, client: &Client, 
             let get = |k| a.get(k).map_or("?".into(), num);
             parts.push(format!("{}..{}", get("min"), get("max")))
         }
-        Component::Select => {
+        Component::Select if !interactive => {
             let opts_max = opts.max_text;
             let opts: Vec<&str> = a
                 .get("options")
@@ -95,7 +122,7 @@ fn node_into(out: &mut String, n: &ResolvedTree, depth: usize, client: &Client, 
         _ => {}
     }
     // The signal a control or tabs edit, with its value.
-    if let Some(path) = s("bind") {
+    if let Some(path) = s("bind").filter(|_| !interactive) {
         let v = client.value(path).map_or("null".into(), compact);
         let v = clip(&v, 2 * opts.max_text);
         parts.push(paint(opts, CYAN, &format!("[{path} = {v}]")));
@@ -109,26 +136,7 @@ fn node_into(out: &mut String, n: &ResolvedTree, depth: usize, client: &Client, 
     if n.component == Component::Dialog && a.get("open") == Some(&Value::Bool(false)) {
         parts.push(paint(opts, DIM, "(closed)"));
     }
-
-    let indent = "  ".repeat(depth);
-    let _ = write!(
-        out,
-        "{indent}{} {}",
-        paint(opts, BOLD, n.component.name()),
-        paint(opts, DIM, &n.id)
-    );
-    for p in &parts {
-        out.push(' ');
-        out.push_str(p);
-    }
-    for (event, h) in handlers(n.component, a) {
-        let _ = write!(out, "  {}", paint(opts, YELLOW, &format!("⚡ {event} →")));
-        out.push_str(&handler(h, opts));
-    }
-    out.push('\n');
-    for c in &n.children {
-        node_into(out, c, depth + 1, client, opts);
-    }
+    parts
 }
 
 /// The handlers an element has, as `(attribute, handler object)`.
@@ -149,7 +157,7 @@ pub fn fires_actions(component: Component, attrs: &Map<String, Value>) -> bool {
 }
 
 /// A handler as ` action payload`, ` patch{keys}` and ` open url`.
-fn handler(h: &Map<String, Value>, opts: &Opts) -> String {
+pub fn handler(h: &Map<String, Value>, opts: &Opts) -> String {
     let mut out = String::new();
     if let Some(a) = h.get("action").and_then(Value::as_str) {
         let _ = write!(out, " {}", paint(opts, GREEN, a));

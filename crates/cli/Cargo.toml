@@ -13,4 +13,6 @@ path = "src/main.rs"
 hyperb-core = { workspace = true, features = ["net", "iroh", "wasm"] }
 boa_engine = "0.22"
 clap = { version = "4.6", features = ["derive"] }
+ratatui = "0.30"
+unicode-width = "0.2"
 url = "2"
