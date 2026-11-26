@@ -90,6 +90,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -482,6 +483,16 @@ fun BrowserScreen(
     shortcut: AppShortcut,
 ) {
     BackHandler(enabled = !standalone && b.snapshot != null) { b.home() }
+    // Log messages from the app, as toasts: the server's way of telling the user something.
+    val context = LocalContext.current
+    val logs = b.snapshot?.logs.orEmpty()
+    LaunchedEffect(logs) {
+        for (log in logs) {
+            val text = log.detail?.let { "${log.summary}: $it" } ?: log.summary
+            val duration = if (log.type == "error" || log.type == "warning") Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+            Toast.makeText(context, text, duration).show()
+        }
+    }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding()) {
             if (!standalone) Toolbar(b, onScan, onOwn, onPin, shortcut)

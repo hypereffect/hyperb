@@ -61,6 +61,8 @@ class Snapshot(
     /** Controls are enabled only while connected. */
     val connected: Boolean,
     val tree: List<Node>,
+    /** Log messages the app sent since the last snapshot. */
+    val logs: List<LogMessage>,
 ) {
     companion object {
         fun parse(json: String): Snapshot {
@@ -76,10 +78,23 @@ class Snapshot(
                 reason = o.opt("reason") as? String,
                 connected = o.optBoolean("connected"),
                 tree = Node.list(o.optJSONArray("tree")),
+                logs = o.optJSONArray("logs")?.let { a ->
+                    List(a.length()) {
+                        val l = a.getJSONObject(it)
+                        LogMessage(
+                            summary = l.getString("summary"),
+                            detail = (l.opt("detail") as? String)?.takeIf { it.isNotEmpty() },
+                            type = l.optString("type", "info"),
+                        )
+                    }
+                } ?: emptyList(),
             )
         }
     }
 }
+
+/** A log message from the app: something to tell the user. */
+class LogMessage(val summary: String, val detail: String?, val type: String)
 
 /** The history (most recent first) and favorites, from [RustBridge.library]. */
 class Library(val history: List<Entry>, val favorites: List<Entry>) {

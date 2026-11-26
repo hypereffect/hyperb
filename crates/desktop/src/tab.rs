@@ -12,6 +12,9 @@
 //! desktop shortcut) runs from it, and meanwhile the tab looks for a newer
 //! one at its address; if there is, a banner offers to update and reload.
 //!
+//! The app's `log` messages appear as transient toasts over the page, and
+//! the debug ones go to the developer log (stderr).
+//!
 //! Every address the user opens goes to the history (except the demo apps);
 //! the toolbar's star adds it to the favorites, and the popover next to it
 //! (and the page of a new tab) lists both, or the demo apps while the history
@@ -29,16 +32,19 @@ use gtk::{gdk, gio, glib, pango};
 use gtk4 as gtk;
 use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
-use hyperb_core::hypereffect::{Value, json};
+use hyperb_core::hypereffect::{Log, LogType, Value, json};
 use hyperb_core::identity::Identity;
 use hyperb_core::library::Entry;
 use hyperb_core::net::{Connection, Event};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 use url::Url;
 
 /// The widest the rendered page gets; the rest of the window is margin.
 const CONTENT_WIDTH: i32 = 800;
+/// How many log toasts to keep on screen at once; older ones go first.
+const MAX_TOASTS: usize = 3;
 
 pub struct Tab {
     /// The notebook page.
@@ -63,6 +69,8 @@ pub struct Tab {
     banner_text: gtk::Label,
     /// Offers the newer module of a kept wasm app.
     update_banner: gtk::Box,
+    /// The app's `log` messages, as transient toasts over the page.
+    toasts: gtk::Box,
     content: gtk::Stack,
     debug: Debugger,
     session: RefCell<Session>,
@@ -300,6 +308,16 @@ impl Tab {
             let overlay = gtk::Overlay::new();
             overlay.set_child(Some(&scroll));
 
+            // Log messages float over the bottom of the page, out of the way.
+            let toasts = gtk::Box::new(gtk::Orientation::Vertical, 6);
+            toasts.add_css_class("hb-toasts");
+            toasts.set_halign(gtk::Align::Center);
+            toasts.set_valign(gtk::Align::End);
+            toasts.set_margin_bottom(18);
+            toasts.set_margin_start(18);
+            toasts.set_margin_end(18);
+            overlay.add_overlay(&toasts);
+
             let content = gtk::Stack::new();
             content.set_vexpand(true);
             content.add_named(
@@ -408,6 +426,7 @@ impl Tab {
                 banner,
                 banner_text,
                 update_banner,
+                toasts,
                 content,
                 debug,
                 session: RefCell::new(Session {
@@ -589,6 +608,10 @@ impl Tab {
     fn connect(self: &Rc<Self>, url: Url) {
         let conn = self.library.connect(&url, &self.identity);
         let events = conn.events();
+        // The previous app's messages, if any, do not belong to this one.
+        while let Some(w) = self.toasts.first_child() {
+            self.toasts.remove(&w);
+        }
         let generation = {
             let mut s = self.session.borrow_mut();
             // Until the new transport opens, nothing may be sent: hello must come first.
@@ -852,14 +875,24 @@ impl Tab {
     }
 
     fn render(&self) {
-        let changes = {
+        let (logs, changes) = {
             let mut s = self.session.borrow_mut();
             for d in s.client.take_diagnostics() {
                 let url = s.url.as_ref().map(Url::as_str).unwrap_or("-");
                 eprintln!("[{url}] {d}");
             }
-            s.client.take_changes()
+            let logs = s.client.take_logs();
+            for log in &logs {
+                if log.kind == LogType::Debug {
+                    let url = s.url.as_ref().map(Url::as_str).unwrap_or("-");
+                    eprintln!("[{url}] {}", log_line(log));
+                }
+            }
+            (logs, s.client.take_changes())
         };
+        for log in logs.iter().filter(|l| l.kind != LogType::Debug) {
+            self.show_log(log);
+        }
         if changes.is_empty() {
             return;
         }
@@ -873,6 +906,73 @@ impl Tab {
         }
         self.quiet.set(false);
         self.debug.sync_elements(&self.session.borrow().client);
+    }
+
+    /// Shows one `log` message as a toast over the page. It goes away after a
+    /// while, or when its close button is clicked.
+    fn show_log(&self, log: &Log) {
+        let (icon, class, ttl) = match log.kind {
+            LogType::Error => ("dialog-error-symbolic", "hb-toast-error", 10),
+            LogType::Warning => ("dialog-warning-symbolic", "hb-toast-warning", 8),
+            LogType::Success => ("emblem-ok-symbolic", "hb-toast-success", 6),
+            LogType::Info | LogType::Debug => ("dialog-information-symbolic", "hb-toast-info", 6),
+        };
+
+        let toast = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        toast.add_css_class("hb-toast");
+        toast.add_css_class(class);
+
+        let head = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let icon = gtk::Image::from_icon_name(icon);
+        icon.add_css_class("hb-toast-icon");
+        let summary = gtk::Label::new(Some(&log.summary));
+        summary.set_xalign(0.0);
+        summary.set_hexpand(true);
+        summary.set_wrap(true);
+        summary.set_max_width_chars(70);
+        summary.add_css_class("hb-toast-summary");
+        let close = gtk::Button::from_icon_name("window-close-symbolic");
+        close.add_css_class("flat");
+        close.add_css_class("circular");
+        close.add_css_class("hb-toast-close");
+        close.set_valign(gtk::Align::Start);
+        close.set_tooltip_text(Some("Dismiss"));
+        {
+            let (toasts, toast) = (self.toasts.clone(), toast.clone());
+            close.connect_clicked(move |_| toasts.remove(&toast));
+        }
+        head.append(&icon);
+        head.append(&summary);
+        head.append(&close);
+        toast.append(&head);
+
+        if let Some(detail) = log.detail.as_deref().filter(|d| !d.is_empty()) {
+            let detail = gtk::Label::new(Some(detail));
+            detail.set_xalign(0.0);
+            detail.set_wrap(true);
+            detail.set_wrap_mode(pango::WrapMode::WordChar);
+            detail.set_max_width_chars(70);
+            detail.add_css_class("hb-toast-detail");
+            toast.append(&detail);
+        }
+
+        self.toasts.append(&toast);
+        let mut n = 0;
+        let mut c = self.toasts.first_child();
+        while let Some(w) = c {
+            c = w.next_sibling();
+            n += 1;
+            if n > MAX_TOASTS {
+                self.toasts.remove(&w);
+            }
+        }
+
+        let (toasts, toast) = (self.toasts.clone(), toast);
+        glib::timeout_add_local_once(Duration::from_secs(ttl), move || {
+            if toast.parent().is_some() {
+                toasts.remove(&toast);
+            }
+        });
     }
 
     /// Outlines element `id` in the page, or clears the outline.
@@ -917,6 +1017,14 @@ impl Tab {
             }
             _ => self.banner.set_visible(false),
         }
+    }
+}
+
+/// A `log` message as one line for the developer log.
+fn log_line(log: &Log) -> String {
+    match log.detail.as_deref().filter(|d| !d.is_empty()) {
+        Some(detail) => format!("{}: {detail}", log.summary),
+        None => log.summary.clone(),
     }
 }
 

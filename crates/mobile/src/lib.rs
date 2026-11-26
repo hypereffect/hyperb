@@ -5,7 +5,9 @@
 //! opaque handle. Kotlin waits for network events on a background thread
 //! with `await`, then reads the whole state as JSON with `snapshot` and
 //! renders it; user input goes back through `input`, which returns the URLs
-//! buttons asked to open, for Kotlin to hand to the system.
+//! buttons asked to open, for Kotlin to hand to the system. The snapshot's
+//! `logs` are the app's `log` messages since the last one, for Kotlin to show
+//! the user; the debug ones go to the Android log instead.
 //!
 //! Handle lifetime: `cancel` ends the session, which makes `await` return
 //! false; the thread that calls `await` then calls `free`, and nothing may
@@ -24,7 +26,7 @@
 
 use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
-use hyperb_core::hypereffect::{Value, json, serde_json};
+use hyperb_core::hypereffect::{LogType, Value, json, serde_json};
 use hyperb_core::identity::Identity;
 use hyperb_core::library::{self, Entry, Store};
 use hyperb_core::net::{Connection, Event};
@@ -100,6 +102,29 @@ impl Inner {
         for d in self.client.take_diagnostics() {
             log::warn!("[{}] {d}", self.url);
         }
+        // Log messages are for the user, except the debug ones, which are
+        // for the developer log.
+        let logs: Vec<_> = self
+            .client
+            .take_logs()
+            .into_iter()
+            .filter(|log| {
+                if log.kind == LogType::Debug {
+                    log::warn!(
+                        "[{}] {}{}",
+                        self.url,
+                        log.summary,
+                        log.detail
+                            .as_deref()
+                            .map(|d| format!(": {d}"))
+                            .unwrap_or_default()
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
         if self.client.take_changes().metadata {
             self.describe();
         }
@@ -121,6 +146,7 @@ impl Inner {
             "reason": reason,
             "connected": self.client.is_connected(),
             "tree": tree,
+            "logs": logs,
         })
         .to_string()
     }

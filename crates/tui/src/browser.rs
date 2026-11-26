@@ -10,11 +10,14 @@
 //!
 //! URLs that buttons ask to open go to the system's opener when there is a
 //! graphical session, and the status line shows them for a while either way.
-//! A hyperb address replaces the session, as there is only one.
+//! A hyperb address replaces the session, as there is only one. The app's
+//! `log` messages show on the status line the same way; the debug ones go to
+//! the file named by `HYPERB_LOG`.
 
 use crate::Msg;
 use crate::page::{ACCENT, Action, Page, SPINNER};
 use hyperb_core::address;
+use hyperb_core::hypereffect::LogType;
 use hyperb_core::hypereffect::client::{Client, ResolvedTree};
 use hyperb_core::identity::Identity;
 use hyperb_core::net::{Connection, Event};
@@ -175,6 +178,26 @@ impl Browser {
         let diags = s.client.take_diagnostics();
         if !diags.is_empty() {
             log(s.url.as_str(), &diags);
+        }
+        // Log messages are for the user, on the status line, except the
+        // debug ones, which are for the developer log.
+        let mut notices = Vec::new();
+        for message in s.client.take_logs() {
+            let line = match message.detail.as_deref().filter(|d| !d.is_empty()) {
+                Some(detail) => format!("{}: {detail}", message.summary),
+                None => message.summary,
+            };
+            match message.kind {
+                LogType::Debug => log(s.url.as_str(), &[line]),
+                LogType::Success => notices.push(format!("✓ {line}")),
+                LogType::Warning => notices.push(format!("⚠ {line}")),
+                LogType::Error => notices.push(format!("✗ {line}")),
+                LogType::Info => notices.push(line),
+            }
+        }
+        if !notices.is_empty() {
+            let text = notices.join(" · ");
+            self.notice = Some((text, Instant::now() + NOTICE));
         }
         let changes = s.client.take_changes();
         // Empty metadata is how every session starts: the title stays while

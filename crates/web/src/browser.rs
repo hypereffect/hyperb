@@ -9,7 +9,8 @@
 //! remote wasm app run by the browser); when it opens the page sends `hello`
 //! and from then on feeds every message to the [`Client`]. When the transport
 //! closes the last state stays on screen with controls disabled, and a banner
-//! offers to reconnect.
+//! offers to reconnect. The app's `log` messages appear as toasts over the
+//! page; the debug ones go to the console.
 //!
 //! The identity is kept in `localStorage`, and so are the history and the
 //! favorites ([`crate::store`]), which the welcome page and the toolbar's
@@ -22,7 +23,7 @@ use crate::render::Children;
 use crate::store;
 use hyperb_core::address;
 use hyperb_core::hypereffect::client::Client;
-use hyperb_core::hypereffect::{Component, Value};
+use hyperb_core::hypereffect::{Component, LogType, Value};
 use hyperb_core::identity::Identity;
 use hyperb_core::library::{self, DEMOS, Entry, Library};
 use hyperb_core::net::{Connection, Event};
@@ -32,10 +33,22 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
 use std::collections::HashMap;
+use std::time::Duration;
 use url::Url;
 use wasm_bindgen::JsCast;
 
 const IDENTITY_KEY: &str = "hyperb.identity";
+/// How many log toasts to keep on screen at once; older ones go first.
+const MAX_NOTICES: usize = 3;
+
+/// One `log` message from the app, shown as a toast until it goes away.
+#[derive(Clone, PartialEq)]
+struct Notice {
+    id: u64,
+    summary: String,
+    detail: Option<String>,
+    kind: LogType,
+}
 
 #[derive(Clone, PartialEq)]
 pub enum State {
@@ -59,6 +72,10 @@ pub struct Ctx {
     version: RwSignal<u64>,
     /// The selected tab of `tabs` elements without `bind`.
     pub local_tabs: RwSignal<HashMap<String, String>>,
+    /// Log messages from the app, newest last.
+    notices: RwSignal<Vec<Notice>>,
+    /// The id of the next notice.
+    next_notice: StoredValue<u64>,
     /// History and favorites, as last stored.
     library: RwSignal<Library>,
     /// The title and icon of `url`, from its library entry until the app
@@ -77,6 +94,8 @@ impl Ctx {
             state: RwSignal::new(None),
             version: RwSignal::new(0),
             local_tabs: RwSignal::new(HashMap::new()),
+            notices: RwSignal::new(Vec::new()),
+            next_notice: StoredValue::new(0),
             library: RwSignal::new(store::load()),
             entry: RwSignal::new(None),
         }
@@ -148,6 +167,7 @@ impl Ctx {
         self.url.set(None);
         self.entry.set(None);
         self.state.set(None);
+        self.notices.set(Vec::new());
         self.refresh();
     }
 
@@ -166,6 +186,8 @@ impl Ctx {
         self.local_tabs.set(HashMap::new());
         self.url.set(Some(url.clone()));
         self.state.set(Some(State::Connecting));
+        // The previous app's messages do not belong to this one.
+        self.notices.set(Vec::new());
         self.refresh();
         let keeps = self.library.with_untracked(|l| l.keeps_module(&url));
         spawn_local(async move {
@@ -234,9 +256,9 @@ impl Ctx {
 
     /// Picks up what changed in the client.
     fn refresh(self) {
-        let (diags, changes) = self
+        let (diags, logs, changes) = self
             .client
-            .try_update_value(|c| (c.take_diagnostics(), c.take_changes()))
+            .try_update_value(|c| (c.take_diagnostics(), c.take_logs(), c.take_changes()))
             .unwrap_or_default();
         if !diags.is_empty() {
             let url = self
@@ -246,6 +268,45 @@ impl Ctx {
                 .unwrap_or_default();
             for d in diags {
                 warn!("[{url}] {d}");
+            }
+        }
+        if !logs.is_empty() {
+            let url = self
+                .url
+                .get_untracked()
+                .map(String::from)
+                .unwrap_or_default();
+            for log in logs {
+                let line = match log.detail.as_deref().filter(|d| !d.is_empty()) {
+                    Some(detail) => format!("{}: {detail}", log.summary),
+                    None => log.summary.clone(),
+                };
+                if log.kind == LogType::Debug {
+                    warn!("[{url}] {line}");
+                    continue;
+                }
+                let id = self.next_notice.get_value();
+                self.next_notice.set_value(id + 1);
+                let ttl = match log.kind {
+                    LogType::Error => 10,
+                    LogType::Warning => 8,
+                    _ => 6,
+                };
+                self.notices.update(|n| {
+                    n.push(Notice {
+                        id,
+                        summary: log.summary,
+                        detail: log.detail,
+                        kind: log.kind,
+                    });
+                    let extra = n.len().saturating_sub(MAX_NOTICES);
+                    n.drain(..extra);
+                });
+                let notices = self.notices;
+                let _ = set_timeout_with_handle(
+                    move || notices.update(|n| n.retain(|notice| notice.id != id)),
+                    Duration::from_secs(ttl),
+                );
             }
         }
         if changes.metadata {
@@ -336,6 +397,26 @@ impl Ctx {
 
     pub fn public_key(self) -> String {
         self.identity.with_value(|id| id.public().to_string())
+    }
+}
+
+/// The CSS name of a log message's kind.
+fn notice_class(kind: LogType) -> &'static str {
+    match kind {
+        LogType::Success => "success",
+        LogType::Warning => "warning",
+        LogType::Error => "error",
+        LogType::Info | LogType::Debug => "info",
+    }
+}
+
+/// The glyph a log message's kind shows.
+fn notice_glyph(kind: LogType) -> &'static str {
+    match kind {
+        LogType::Success => "✓",
+        LogType::Warning => "!",
+        LogType::Error => "✕",
+        LogType::Info | LogType::Debug => "i",
     }
 }
 
@@ -707,6 +788,45 @@ pub fn Browser() -> impl IntoView {
                 >
                     "Reconnect"
                 </button>
+            </div>
+            <div class="hb-toasts" aria-live="polite">
+                {move || {
+                    ctx.notices
+                        .get()
+                        .into_iter()
+                        .map(|notice| {
+                            let id = notice.id;
+                            view! {
+                                <div class=format!("hb-toast hb-toast-{}", notice_class(notice.kind))>
+                                    <span class="hb-toast-icon" aria-hidden="true">
+                                        {notice_glyph(notice.kind)}
+                                    </span>
+                                    <div class="hb-toast-text">
+                                        <div class="hb-toast-summary">{notice.summary}</div>
+                                        {notice
+                                            .detail
+                                            .filter(|d| !d.is_empty())
+                                            .map(|detail| {
+                                                view! { <div class="hb-toast-detail">{detail}</div> }
+                                            })}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="hb-icon-button hb-toast-close"
+                                        title="Dismiss"
+                                        aria-label="Dismiss"
+                                        on:click=move |_| {
+                                            ctx.notices
+                                                .update(|n| n.retain(|notice| notice.id != id))
+                                        }
+                                    >
+                                        "✕"
+                                    </button>
+                                </div>
+                            }
+                        })
+                        .collect_view()
+                }}
             </div>
             {move || {
                 if has_page.get() {
